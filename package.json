@@ -24,6 +24,7 @@
     "xumm-sdk": "^1.11.2"
   },
   "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.16.6",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
