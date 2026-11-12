@@ -1,0 +1,15 @@
+# Local development database
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: delta
+      POSTGRES_PASSWORD: delta
+      POSTGRES_DB: delta_finance
+    ports:
+      - "5432:5432"
+    volumes:
+      - delta_pg:/var/lib/postgresql/data
+
+volumes:
+  delta_pg:

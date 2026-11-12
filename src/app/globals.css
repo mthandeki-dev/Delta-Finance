@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-df-black text-white antialiased;
+}
+
+/* Visible keyboard focus everywhere */
+:focus-visible {
+  outline: 2px solid #ffd60a;
+  outline-offset: 2px;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-df-line bg-df-panel p-5;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-widest text-df-yellow;
+  }
+  .card-title {
+    @apply mt-1 text-lg font-semibold text-white;
+  }
+  .hint {
+    @apply text-sm text-neutral-400;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-neutral-200;
+  }
+  .input {
+    @apply w-full rounded-lg border border-df-line bg-black px-3 py-2 text-white placeholder:text-neutral-500 focus:border-df-yellow focus:outline-none;
+  }
+  .btn {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-df-yellow text-black hover:bg-df-amber;
+  }
+  .btn-ghost {
+    @apply btn border border-df-line bg-transparent text-white hover:border-neutral-500;
+  }
+  .btn-danger {
+    @apply btn border border-white bg-white text-black hover:bg-neutral-200;
+  }
+  .mono {
+    @apply font-mono tabular-nums;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

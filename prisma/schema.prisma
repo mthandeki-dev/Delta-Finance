@@ -1,0 +1,154 @@
+// Delta Finance — data model
+// PostgreSQL (AWS RDS) via Prisma
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+enum TxRoute {
+  AUTONOMOUS
+  HITL
+  BLOCKED
+}
+
+enum TxStatus {
+  PENDING // autonomous payment in flight
+  PENDING_HITL // waiting for an admin + secret code
+  AWAITING_SIGNATURE // Xaman payload sent, waiting for the admin to sign
+  EXECUTED // validated on the XRP Ledger
+  BLOCKED // rejected by a policy layer
+  REJECTED // declined by a human
+  FAILED // technical failure
+}
+
+// Which enforcement layer refused the payment. Everything except INTENT_VALIDATION
+// and APP_POLICY lives outside this application's own process.
+enum BlockLayer {
+  INTENT_VALIDATION
+  APP_POLICY
+  X402_GATEWAY
+  PRIVY_POLICY
+  T54_FACILITATOR
+}
+
+model User {
+  id              String   @id @default(cuid())
+  xrplAddress     String   @unique
+  role            Role     @default(VIEWER)
+  // Xaman user token: lets the backend push sign requests to the admin's phone
+  xamanUserToken  String?
+  createdAt       DateTime @default(now())
+  lastLoginAt     DateTime @default(now())
+
+  policiesUpdated TreasuryPolicy[]
+  vendorsCreated  Vendor[]
+  secretCodes     SecretCode[]
+  approvals       TransactionLog[] @relation("ApprovedBy")
+}
+
+// Singleton row (id = "default"): the treasury mandate the agent operates under.
+model TreasuryPolicy {
+  id              String    @id @default("default")
+  agentEnabled    Boolean   @default(true) // kill switch
+  dailyLimitRlusd Decimal   @default(100) @db.Decimal(20, 6)
+  perTxLimitRlusd Decimal   @default(25) @db.Decimal(20, 6)
+  // Mirror of this mandate in Privy's policy engine (enforced at signing time)
+  privyPolicyId   String?
+  privySyncedAt   DateTime?
+  privySyncError  String?
+  updatedById     String?
+  updatedBy       User?     @relation(fields: [updatedById], references: [id])
+  updatedAt       DateTime  @updatedAt
+}
+
+// Whitelisted XRPL vendor addresses.
+model Vendor {
+  id          String   @id @default(cuid())
+  label       String
+  xrplAddress String   @unique
+  country     String? // ISO 3166-1 alpha-2 of the supplier, e.g. "NG", "KE" (payment corridor)
+  active      Boolean  @default(true)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+// One-time codes that unlock a Human-in-the-Loop payment. Only the scrypt hash is stored.
+model SecretCode {
+  id          String    @id @default(cuid())
+  prefix      String    @unique // public lookup handle, e.g. "K7Q2MX"
+  codeHash    String
+  salt        String
+  label       String?
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedForTxId String?
+  revokedAt   DateTime?
+}
+
+// Singleton row (id = "agent"): the agent's Privy server wallet.
+model AgentWallet {
+  id            String   @id @default("agent")
+  privyWalletId String   @unique
+  address       String   @unique
+  publicKey     String
+  trustlineSet  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model TransactionLog {
+  id               String      @id @default(cuid())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  actor            String // "admin:<address>" or "agent-api"
+  prompt           String
+  intentJson       Json?
+  intentSource     String? // "llm" | "deterministic"
+  amountRlusd      Decimal?    @db.Decimal(20, 6)
+  merchantAddress  String?
+  isPayroll        Boolean     @default(false)
+  route            TxRoute
+  status           TxStatus
+  blockedBy        BlockLayer?
+  reason           String?
+  invoiceId        String?
+  txHash           String?
+  settledVia       String? // "T54_FACILITATOR" | "DIRECT_FALLBACK" | "XAMAN"
+  xamanPayloadUuid String?
+  hitlAttempts     Int         @default(0)
+  approvedById     String?
+  approvedBy       User?       @relation("ApprovedBy", fields: [approvedById], references: [id])
+  auditLogs        AuditLog[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([route, status, createdAt])
+}
+
+// Append-only audit trail (also mirrored to stdout for CloudWatch).
+model AuditLog {
+  id        String          @id @default(cuid())
+  createdAt DateTime        @default(now())
+  txId      String?
+  tx        TransactionLog? @relation(fields: [txId], references: [id])
+  actor     String
+  event     String
+  detail    Json?
+
+  @@index([txId])
+  @@index([createdAt])
+}

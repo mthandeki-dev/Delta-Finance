@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Delta Finance">
+  <rect width="64" height="64" rx="12" fill="#FFD60A"/>
+  <!-- D -->
+  <path fill="#000" fill-rule="evenodd" d="M10 14H23C33.5 14 40 21.5 40 32C40 42.500 33.500 50 23 50H10ZM17.500 21V43H22.500C28.500 43 32.500 38.800 32.500 32C32.500 25.200 28.500 21 22.500 21Z"/>
+  <!-- F -->
+  <path fill="#000" d="M43.500 14H56V21H51V28.500H55V35.500H51V50H43.500Z"/>
+  <!-- delta notch -->
+  <path fill="#000" d="M19.500 40L24.250 31.500L29 40Z"/>
+</svg>
