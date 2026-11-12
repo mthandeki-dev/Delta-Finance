@@ -1,0 +1,46 @@
+import { PrismaClient, Role } from '@prisma/client';
+import bcrypt from 'bcrypt';
+
+const prisma = new PrismaClient();
+
+/**
+ * Bootstrap the demo Administrator. The documented demo password is "robotman".
+ * For any deployed environment, explicitly provide ADMIN_SEED_PASSWORD as an
+ * environment variable. No plaintext password is ever written to PostgreSQL.
+ *
+ * Do not reset an existing administrator's password on subsequent seed runs.
+ */
+async function main(): Promise<void> {
+  const password = process.env.ADMIN_SEED_PASSWORD ?? (process.env.NODE_ENV === 'production' ? undefined : 'robotman');
+  if (!password) {
+    throw new Error('Set ADMIN_SEED_PASSWORD before seeding a production database.');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const admin = await prisma.user.upsert({
+    where: { username: 'admin' },
+    update: {
+      // Role.ADMIN is the schema's Administrator role.
+      // Preserve the current password when running this seed again.
+      role: Role.ADMIN,
+    },
+    create: {
+      username: 'admin',
+      email: 'admin',
+      passwordHash,
+      passwordSalt: null,
+      role: Role.ADMIN,
+    },
+  });
+
+  console.log(`Administrator account ready: ${admin.id} (role: ${admin.role})`);
+}
+
+main()
+  .catch((error: unknown) => {
+    console.error('Administrator seed failed:', error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

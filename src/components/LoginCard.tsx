@@ -1,5 +1,7 @@
 'use client';
 
+import { signIn } from 'next-auth/react';
+
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 
@@ -130,7 +132,8 @@ function PasswordPanel() {
     setBusy(true);
     try {
       if (mode === 'sign-in') {
-        await api('/api/auth/login', { method: 'POST', body: { identifier, password } });
+        const result = await signIn('credentials', { redirect: false, identifier, password });
+        if (!result || result.error) throw new Error('Email/username or password is incorrect.');
       } else {
         await api('/api/auth/register', { method: 'POST', body: { username, email, password } });
       }

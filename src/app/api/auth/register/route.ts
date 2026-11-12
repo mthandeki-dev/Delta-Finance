@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db';
 import { AppError } from '@/lib/errors';
 import { ok, readJson, route, str } from '@/lib/http';
-import { hashPassword } from '@/lib/password';
+import bcrypt from 'bcrypt';
 import { startSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
@@ -32,9 +32,9 @@ export const POST = route(async (req) => {
   if (existing?.email === email) throw new AppError(409, 'EMAIL_TAKEN', 'An account with that email already exists.');
   if (existing?.username === username) throw new AppError(409, 'USERNAME_TAKEN', 'That username is already taken.');
 
-  const { hash, salt } = hashPassword(password);
+  const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
-    data: { username, email, passwordHash: hash, passwordSalt: salt },
+    data: { username, email, passwordHash, passwordSalt: null },
   });
 
   await startSession(user);
