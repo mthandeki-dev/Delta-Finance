@@ -152,3 +152,10 @@ This codebase was written without network access to install packages, so read th
 - Approval codes are single-use, expiring, scrypt-hashed, and locked after five wrong attempts.
 - Sessions are HMAC-signed, httpOnly, SameSite=Lax cookies; roles are re-read from the database on every request.
 - Never commit `.env`. Testnet funds have no value; a mainnet deployment needs KYB with t54, a compliance review and a security audit.
+
+
+---
+
+## Netlify deployment
+
+For Netlify, use the repo-root `netlify.toml` and follow [NETLIFY_DEPLOY_GUIDE.md](NETLIFY_DEPLOY_GUIDE.md). The existing Docker/AWS setup is still supported; `next.config.mjs` switches output mode automatically depending on whether `NETLIFY=true` is set during the build.

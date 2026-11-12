@@ -1,0 +1,8 @@
+# Netlify builds this server-rendered Next.js application from source.
+# This is not a static-site export. Leave Next.js routing to the Netlify adapter.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"

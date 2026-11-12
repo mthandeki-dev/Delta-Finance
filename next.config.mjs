@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  // Netlify deploys SSR and route handlers with its Next.js adapter.
+  // Keep standalone output for the existing AWS/Docker deployment only.
+  ...(process.env.NETLIFY === 'true' ? {} : { output: 'standalone' }),
   poweredByHeader: false,
   serverExternalPackages: ['xrpl', 'xumm-sdk', 'ripple-binary-codec', '@prisma/client'],
   images: {
