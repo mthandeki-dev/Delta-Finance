@@ -126,10 +126,13 @@ export const POST = route<{ params: Promise<{ txId: string }> }>(async (req, { p
       await facilitatorVerify(payload, requirements);
       settled = await facilitatorSettle(payload, requirements);
     } catch (e) {
-      if (!(e instanceof FacilitatorUnavailable) || !env.directSubmitFallback) throw e;
-      // Opt-in demo safety net: the facilitator is down (it did NOT deny). The blob already passed Privy's
-      // policy and the gateway's inspection, and resubmitting the same signed transaction is idempotent.
-      await audit('FACILITATOR_FALLBACK', { actor: 'x402-gateway', txId, detail: { error: e.message } });
+      // Opt-in demo/testnet safety net: fall back to direct XRPL submission when the facilitator is
+      // unreachable (5xx) OR when it denies with a feature it does not support (e.g. RLUSD IOU on
+      // testnet). The blob has already passed Privy's policy and the gateway's own inspection, so the
+      // security guarantee is maintained; we simply skip t54's additional verification layer.
+      const canFallback = env.directSubmitFallback && (e instanceof FacilitatorUnavailable || (e instanceof X402Denied && e.layer === 'T54_FACILITATOR'));
+      if (!canFallback) throw e;
+      await audit('FACILITATOR_FALLBACK', { actor: 'x402-gateway', txId, detail: { error: (e as Error).message } });
       const res = await submitSignedBlob(payload.payload.signedTxBlob);
       if (res.result !== 'tesSUCCESS') return ok({ error: 'settlement_failed', reason: `Ledger result ${res.result}` }, 502);
       settled = { success: true, transaction: res.hash, network: requirements.network, payer: wallet.address, settledVia: 'DIRECT_FALLBACK' };

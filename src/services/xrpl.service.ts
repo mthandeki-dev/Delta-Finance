@@ -9,6 +9,8 @@ import { toMicro } from '@/lib/money';
 
 export { isValidClassicAddress };
 
+export const rlusdAmount = (value: string) => ({ currency: RLUSD_HEX, issuer: env.rlusdIssuer, value });
+
 /** Opens a connection for the duration of `fn`. Simple and leak-free; XRPL connects in ~200 ms. */
 export async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
   const client = new Client(env.xrplWss, { connectionTimeout: 10_000, timeout: 20_000 });
@@ -23,13 +25,6 @@ export async function withClient<T>(fn: (client: Client) => Promise<T>): Promise
     await client.disconnect().catch(() => undefined);
   }
 }
-
-export const rlusdAmount = (value: string) => ({ currency: RLUSD_HEX, issuer: env.rlusdIssuer, value });
-
-const hex = (s: string) => Buffer.from(s, 'utf8').toString('hex').toUpperCase();
-
-/** x402 invoice binding, method B: InvoiceID = SHA-256(invoiceId). */
-export const invoiceHash = (invoiceId: string) => createHash('sha256').update(invoiceId, 'utf8').digest('hex').toUpperCase();
 
 export type AccountStatus = {
   activated: boolean;
@@ -105,9 +100,9 @@ export async function buildRlusdPayment(p: {
     Account: p.from,
     Destination: p.to,
     Amount: rlusdAmount(p.amount),
+    ...(p.invoiceId ? { InvoiceID: createHash('sha256').update(p.invoiceId).digest('hex').toUpperCase() } : {}),
     ...(p.sourceTag !== undefined ? { SourceTag: p.sourceTag } : {}),
     ...(p.destinationTag !== undefined ? { DestinationTag: p.destinationTag } : {}),
-    ...(p.invoiceId ? { InvoiceID: invoiceHash(p.invoiceId) } : {}),
   };
   return withClient((client) => client.autofill(tx));
 }

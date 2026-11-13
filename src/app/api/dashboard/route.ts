@@ -47,6 +47,7 @@ export const GET = route(async () => {
       label: v.label,
       xrplAddress: v.xrplAddress,
       country: v.country,
+      isVendor: v.isVendor,
       createdAt: v.createdAt.toISOString(),
     })),
     secretCodes: codes.map((c) => {

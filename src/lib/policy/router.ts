@@ -17,6 +17,8 @@ export type PolicySnapshot = {
   spentTodayMicro: bigint;
   /** Active, whitelisted vendor addresses */
   whitelist: ReadonlySet<string>;
+  /** Subset of whitelist where isVendor=true — these are always paid autonomously */
+  autonomousVendors: ReadonlySet<string>;
   /** The agent's own address, if provisioned (self-payments are refused) */
   agentAddress?: string;
 };
@@ -65,8 +67,13 @@ export function decide(intent: Intent, policy: PolicySnapshot): Decision {
     };
   }
 
+  // ── Path A (early): vendor with isVendor=true is always paid autonomously. ──
+  if (policy.autonomousVendors.has(intent.merchant_address)) {
+    return { route: 'AUTONOMOUS' };
+  }
+
   // ── Path B: escalate to a human. ──
-  // Only payroll and daily-limit breaches require human approval; everything else runs autonomously.
+  // Applies only when the destination is not an autonomous vendor (e.g. isVendor=false payroll address).
   // Per-tx limits are enforced at the Privy wallet-policy layer independently.
   const reasons: string[] = [];
   if (intent.is_payroll) reasons.push('Payroll payments always require human approval.');

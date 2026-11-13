@@ -221,6 +221,7 @@ export async function runAgent(input: { prompt: string; actor: string; redTeam?:
       perTxLimitMicro,
       spentTodayMicro: spent,
       whitelist: new Set(vendors.map((v) => v.xrplAddress)),
+      autonomousVendors: new Set(vendors.filter((v) => v.isVendor).map((v) => v.xrplAddress)),
       agentAddress: wallet?.address,
     });
 
@@ -276,6 +277,19 @@ async function executeAutonomous(
   const finish = (data: Partial<TransactionLog>) => prisma.transactionLog.update({ where: { id: txId }, data: data as never });
   try {
     if (!wallet) throw new AppError(409, 'AGENT_WALLET_MISSING', 'The agent wallet has not been set up yet. An admin can do this from the dashboard.');
+
+    // Pre-flight: confirm the vendor has an RLUSD trust line so we give a clear error instead of tecPATH_DRY.
+    const vendorStatus = await getAccountStatus(intent.merchant_address);
+    if (!vendorStatus.activated) {
+      const reason = `Vendor account ${intent.merchant_address} is not activated on the XRP Ledger. They need XRP to cover the base reserve.`;
+      await audit('AGENT_PAYMENT_FAILED', { actor, txId, detail: { reason } });
+      return finish({ status: 'FAILED', reason });
+    }
+    if (!vendorStatus.rlusdTrustline) {
+      const reason = `Vendor ${intent.merchant_address} has not set up an RLUSD trust line. They must do so before receiving RLUSD payments.`;
+      await audit('AGENT_PAYMENT_FAILED', { actor, txId, detail: { reason } });
+      return finish({ status: 'FAILED', reason });
+    }
 
     const settled = await payViaX402({
       url: `${env.internalUrl}/api/x402/settle/${txId}`,

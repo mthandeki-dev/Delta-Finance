@@ -21,7 +21,7 @@ const MAX_ATTEMPTS = 5;
 export const POST = route<{ params: Promise<{ id: string }> }>(async (req, { params }) => {
   const admin = await requireAdmin();
   const { id } = await params;
-  const actor = `admin:${admin.xrplAddress}`;
+  const actor = `admin:${admin.xrplAddress ?? admin.username}`;
   const input = str((await readJson<{ code?: unknown }>(req)).code, 'Secret code', 40);
 
   const tx = await prisma.transactionLog.findUnique({ where: { id } });

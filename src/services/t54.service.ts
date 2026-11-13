@@ -99,7 +99,7 @@ async function facilitator<T>(path: '/verify' | '/settle', payload: PaymentPaylo
     res = await fetch(`${env.facilitatorUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: requirements }),
+      body: JSON.stringify({ paymentPayload: payload, paymentRequirements: requirements }),
       signal: AbortSignal.timeout(45_000),
     });
   } catch (e) {

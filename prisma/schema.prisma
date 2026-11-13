@@ -85,6 +85,7 @@ model Vendor {
   xrplAddress String   @unique
   country     String? // ISO 3166-1 alpha-2 of the supplier, e.g. "NG", "KE" (payment corridor)
   active      Boolean  @default(true)
+  isVendor    Boolean  @default(true) // true = autonomous payment; false = requires HITL (e.g. payroll)
   createdById String?
   createdBy   User?    @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())

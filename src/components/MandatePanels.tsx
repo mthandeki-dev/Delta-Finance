@@ -106,12 +106,16 @@ export function MandatePanel({ data, isAdmin, onChange, notify }: PanelProps) {
 
 // ───────────────────────────── 2. Who can it pay? ─────────────────────────────
 
+type TrustLineQr = { vendorId: string; vendorLabel: string; qrPng: string; deeplink: string };
+
 export function VendorPanel({ data, isAdmin, onChange, notify }: PanelProps) {
   const [label, setLabel] = useState('');
   const [address, setAddress] = useState('');
   const [country, setCountry] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trustlineQr, setTrustlineQr] = useState<TrustLineQr | null>(null);
+  const [qrBusy, setQrBusy] = useState<string | null>(null);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -142,6 +146,22 @@ export function VendorPanel({ data, isAdmin, onChange, notify }: PanelProps) {
     }
   }
 
+  async function getTrustlineQr(id: string, vendorLabel: string) {
+    if (trustlineQr?.vendorId === id) {
+      setTrustlineQr(null);
+      return;
+    }
+    setQrBusy(id);
+    try {
+      const r = await api<{ uuid: string; qrPng: string; deeplink: string }>(`/api/vendors/${id}/trustline`, { method: 'POST' });
+      setTrustlineQr({ vendorId: id, vendorLabel, qrPng: r.qrPng, deeplink: r.deeplink });
+    } catch (err) {
+      notify((err as Error).message);
+    } finally {
+      setQrBusy(null);
+    }
+  }
+
   return (
     <section className="card" aria-labelledby="vendors-h">
       <p className="eyebrow">Who can it pay?</p>
@@ -155,19 +175,57 @@ export function VendorPanel({ data, isAdmin, onChange, notify }: PanelProps) {
       ) : (
         <ul className="mt-4 divide-y divide-df-line">
           {data.vendors.map((v) => (
-            <li key={v.id} className="flex items-center justify-between gap-3 py-2.5">
-              <div className="min-w-0">
-                <p className="truncate font-medium">
-                  {v.label} {v.country && <span className="badge ml-1 border-df-line text-neutral-300">{v.country}</span>}
-                </p>
-                <p className="mono text-xs text-neutral-400" title={v.xrplAddress}>
-                  {shortAddress(v.xrplAddress)}
-                </p>
+            <li key={v.id} className="flex flex-col gap-2 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {v.label}
+                    {v.country && <span className="badge ml-1 border-df-line text-neutral-300">{v.country}</span>}
+                    <span className={`badge ml-1 ${v.isVendor ? 'border-green-800 text-green-400' : 'border-df-yellow text-df-yellow'}`}>
+                      {v.isVendor ? 'auto' : 'HITL'}
+                    </span>
+                  </p>
+                  <p className="mono text-xs text-neutral-400" title={v.xrplAddress}>
+                    {shortAddress(v.xrplAddress)}
+                  </p>
+                </div>
+                {isAdmin && (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => getTrustlineQr(v.id, v.label)}
+                      disabled={qrBusy === v.id}
+                      className="btn-ghost text-xs"
+                      aria-label={`RLUSD trust line QR for ${v.label}`}
+                      title="Generate a Xaman QR code so this vendor can add the RLUSD trust line"
+                    >
+                      {qrBusy === v.id ? '…' : 'Trust line QR'}
+                    </button>
+                    <button onClick={() => remove(v.id, v.label)} className="btn-ghost shrink-0" aria-label={`Remove ${v.label}`}>
+                      Remove
+                    </button>
+                  </div>
+                )}
               </div>
-              {isAdmin && (
-                <button onClick={() => remove(v.id, v.label)} className="btn-ghost shrink-0" aria-label={`Remove ${v.label}`}>
-                  Remove
-                </button>
+              {trustlineQr?.vendorId === v.id && (
+                <div className="rounded-lg border border-df-line bg-neutral-900 p-4">
+                  <p className="mb-2 text-sm font-semibold">RLUSD trust line — {trustlineQr.vendorLabel}</p>
+                  <p className="hint mb-3 text-xs">
+                    The vendor must scan this QR with Xaman (using their <span className="mono">{shortAddress(v.xrplAddress)}</span> account) to set the RLUSD trust line.
+                    This is required before the agent can pay them.
+                  </p>
+                  <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={trustlineQr.qrPng} alt="Xaman TrustSet QR code" className="h-40 w-40 rounded-lg bg-white" />
+                    <div className="flex flex-col gap-2">
+                      <a href={trustlineQr.deeplink} className="btn-ghost text-sm" target="_blank" rel="noreferrer">
+                        Open in Xaman
+                      </a>
+                      <button className="btn-ghost text-sm" onClick={() => setTrustlineQr(null)}>
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </li>
           ))}

@@ -5,6 +5,8 @@ import { decide, type PolicySnapshot } from '../src/lib/policy/router';
 import { deterministicParse, groundIntent, validateIntentShape, IntentError } from '../src/lib/policy/intent';
 
 const VENDOR = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
+// Whitelisted but isVendor=false — represents a payroll/contractor address
+const PAYROLL = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
 const STRANGER = 'ra5nK24KXen9AHvsdFTKHSANinZseWnPcX';
 const vendors = [{ label: 'Lagos Textiles', xrplAddress: VENDOR }];
 
@@ -13,7 +15,8 @@ const policy = (over: Partial<PolicySnapshot> = {}): PolicySnapshot => ({
   dailyLimitMicro: toMicro('100'),
   perTxLimitMicro: toMicro('25'),
   spentTodayMicro: 0n,
-  whitelist: new Set([VENDOR]),
+  whitelist: new Set([VENDOR, PAYROLL]),
+  autonomousVendors: new Set([VENDOR]), // PAYROLL is whitelisted but not autonomous
   ...over,
 });
 const pay = (amount: number, merchant_address = VENDOR, is_payroll = false) =>
@@ -27,22 +30,20 @@ test('money: exact decimal round trip', () => {
   assert.throws(() => toMicro('-1'));
 });
 
-test('router: Path A — under limit, whitelisted, not payroll', () => {
+test('router: Path A — isVendor=true is always autonomous (ignores payroll flag and daily limit)', () => {
   assert.deepEqual(decide(pay(10), policy()), { route: 'AUTONOMOUS' });
-  assert.equal(decide(pay(25), policy()).route, 'AUTONOMOUS'); // limit is inclusive
+  assert.deepEqual(decide(pay(1, VENDOR, true), policy()), { route: 'AUTONOMOUS' }); // payroll flag ignored for vendor
+  assert.deepEqual(decide(pay(90), policy({ spentTodayMicro: toMicro('80') })), { route: 'AUTONOMOUS' }); // daily limit ignored
 });
 
-test('router: Path B — over per-payment limit escalates', () => {
-  assert.equal(decide(pay(25.000001), policy()).route, 'HITL');
+test('router: Path B — non-autonomous whitelisted address: daily limit escalates', () => {
+  assert.equal(decide(pay(20, PAYROLL), policy({ spentTodayMicro: toMicro('80') })).route, 'AUTONOMOUS');
+  assert.equal(decide(pay(20, PAYROLL), policy({ spentTodayMicro: toMicro('80.01') })).route, 'HITL');
 });
 
-test('router: Path B — daily limit counts what was already spent', () => {
-  assert.equal(decide(pay(20), policy({ spentTodayMicro: toMicro('80') })).route, 'AUTONOMOUS');
-  assert.equal(decide(pay(20), policy({ spentTodayMicro: toMicro('80.01') })).route, 'HITL');
-});
-
-test('router: Path B — payroll always escalates, even for tiny amounts', () => {
-  assert.equal(decide(pay(1, VENDOR, true), policy()).route, 'HITL');
+test('router: Path B — non-autonomous whitelisted address: payroll escalates', () => {
+  assert.equal(decide(pay(1, PAYROLL, true), policy()).route, 'HITL');
+  assert.equal(decide(pay(1, PAYROLL, false), policy()).route, 'AUTONOMOUS');
 });
 
 test('router: Path C — non-whitelisted destination is blocked, never escalated', () => {

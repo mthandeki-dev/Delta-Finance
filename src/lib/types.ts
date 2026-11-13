@@ -31,7 +31,7 @@ export type TxView = {
   settledVia: string | null;
 };
 
-export type VendorView = { id: string; label: string; xrplAddress: string; country: string | null; createdAt: string };
+export type VendorView = { id: string; label: string; xrplAddress: string; country: string | null; isVendor: boolean; createdAt: string };
 
 export type SecretCodeView = {
   id: string;

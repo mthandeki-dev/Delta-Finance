@@ -41,6 +41,19 @@ export function createSignIn(): Promise<SignRequest> {
   });
 }
 
+/** TrustSet QR: lets a vendor add the RLUSD trust line by scanning with their own Xaman wallet. */
+export function createTrustSetRequest(vendorLabel: string): Promise<SignRequest> {
+  return create({
+    txjson: {
+      TransactionType: 'TrustSet',
+      LimitAmount: rlusdAmount('1000000000'),
+      Flags: 131072,
+    },
+    options: { submit: true, expire: 10, force_network: 'TESTNET' },
+    custom_meta: { instruction: `Set RLUSD trust line — ${vendorLabel}` },
+  });
+}
+
 /** HITL approval: an RLUSD Payment the admin signs natively in Xaman. Pushed to their phone when possible. */
 export function createPaymentRequest(p: {
   txId: string;
