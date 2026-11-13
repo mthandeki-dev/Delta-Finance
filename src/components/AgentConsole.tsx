@@ -4,21 +4,29 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentResult, DashboardData } from '@/lib/types';
 import { api, LAYER_LABEL, money } from './api';
 
-// The Web Speech API is not fully typed in lib.dom.d.ts
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySpeechRecognition = any;
 
-function MicIcon({ recording }: { recording: boolean }) {
+const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
+
+const HEADLINE: Record<string, { title: string; tone: string }> = {
+  EXECUTED: { title: 'Paid autonomously', tone: 'border-df-yellow' },
+  PENDING_HITL: { title: 'Sent for approval', tone: 'border-white' },
+  BLOCKED: { title: 'Blocked', tone: 'border-white' },
+  FAILED: { title: 'Could not complete', tone: 'border-df-line' },
+};
+
+function MicIcon({ size = 32 }: { size?: number }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`h-4 w-4 ${recording ? 'text-df-yellow' : 'text-neutral-400'}`}
+      style={{ width: size, height: size }}
       aria-hidden
     >
       <rect x="9" y="2" width="6" height="12" rx="3" />
@@ -29,15 +37,13 @@ function MicIcon({ recording }: { recording: boolean }) {
   );
 }
 
-// A syntactically valid Testnet address that is not on anyone's whitelist by default (from the XRPL docs).
-const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
-
-const HEADLINE: Record<string, { title: string; tone: string }> = {
-  EXECUTED: { title: 'Paid autonomously', tone: 'border-df-yellow' },
-  PENDING_HITL: { title: 'Sent for approval', tone: 'border-white' },
-  BLOCKED: { title: 'Blocked', tone: 'border-white' },
-  FAILED: { title: 'Could not complete', tone: 'border-df-line' },
-};
+function StopIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7" aria-hidden>
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+    </svg>
+  );
+}
 
 export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; isAdmin: boolean; onDone: () => Promise<void> | void }) {
   const [prompt, setPrompt] = useState('');
@@ -51,7 +57,6 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const [hasSpeech, setHasSpeech] = useState<boolean | null>(null);
   const recognitionRef = useRef<AnySpeechRecognition>(null);
 
-  // Detect browser Speech API support once on mount
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
@@ -96,9 +101,9 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const small = Math.max(1, Math.min(5, Math.floor(perTx / 2) || 1));
   const examples = [
     vendor && { tag: 'Routine', text: `Pay ${vendor.label} ${small} RLUSD for invoice 1042` },
-    vendor && { tag: 'Over the limit', text: `Pay ${vendor.label} ${Math.ceil(perTx * 2) || 50} RLUSD for the quarterly order` },
+    vendor && { tag: 'Over limit', text: `Pay ${vendor.label} ${Math.ceil(perTx * 2) || 50} RLUSD for the quarterly order` },
     vendor && { tag: 'Payroll', text: `Pay ${vendor.label} ${small} RLUSD for this month's salary` },
-    { tag: 'Unknown recipient', text: `Pay 5 RLUSD to ${UNKNOWN_ADDRESS}` },
+    { tag: 'Unknown', text: `Pay 5 RLUSD to ${UNKNOWN_ADDRESS}` },
   ].filter(Boolean) as { tag: string; text: string }[];
 
   async function run(e: React.FormEvent) {
@@ -108,7 +113,6 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     setError(null);
     setResult(null);
     try {
-      // 202 (needs approval), 403 (blocked) and 502 (failed) are outcomes, not transport errors.
       const r = await api<AgentResult & { error?: { message: string } }>('/api/agent', {
         method: 'POST',
         body: { prompt, redTeam },
@@ -133,85 +137,121 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
         Give the agent an instruction
       </h2>
       <p className="hint mt-1">
-        Write it the way you would tell a colleague. The agent turns it into one precise payment, then your rules decide what happens.
+        {hasSpeech ? 'Speak or type a payment instruction.' : 'Type a payment instruction below.'}
         {!data.config.llm && ' (Language model not configured: using the built-in parser.)'}
       </p>
 
-      <form onSubmit={run} className="mt-4">
-        <label htmlFor="prompt" className="sr-only">
-          Instruction for the agent
-        </label>
-        <div className="relative">
+      <form onSubmit={run} className="mt-6 space-y-4">
+
+        {/* ── Voice hero ── */}
+        {hasSpeech && (
+          <div className="flex flex-col items-center gap-3 py-6">
+            {/* Outer glow rings */}
+            <div className="relative flex items-center justify-center">
+              {recording && (
+                <>
+                  <span className="absolute h-36 w-36 animate-ping rounded-full bg-df-yellow/10" style={{ animationDuration: '1.5s' }} aria-hidden />
+                  <span className="absolute h-28 w-28 animate-ping rounded-full bg-df-yellow/15" style={{ animationDuration: '1.5s', animationDelay: '0.3s' }} aria-hidden />
+                </>
+              )}
+
+              {/* Main mic button */}
+              <button
+                type="button"
+                onClick={toggleRecording}
+                disabled={busy}
+                aria-label={recording ? 'Stop recording' : 'Start voice recording'}
+                className={`relative z-10 flex h-24 w-24 items-center justify-center rounded-full border-2 transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-df-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
+                  recording
+                    ? 'border-df-yellow bg-df-yellow/10 text-df-yellow shadow-[0_0_40px_rgba(255,214,10,0.25)]'
+                    : 'border-df-line bg-df-panel text-neutral-400 hover:border-df-yellow hover:bg-df-yellow/5 hover:text-df-yellow hover:shadow-[0_0_20px_rgba(255,214,10,0.1)]'
+                }`}
+              >
+                {recording ? <StopIcon /> : <MicIcon size={34} />}
+              </button>
+            </div>
+
+            <p className={`text-sm font-medium transition-colors ${recording ? 'text-df-yellow' : 'text-df-mute'}`}>
+              {recording ? 'Listening — tap to stop' : 'Tap to speak'}
+            </p>
+          </div>
+        )}
+
+        {/* ── Transcript / text input ── */}
+        <div>
+          {hasSpeech && (
+            <p className="mb-1.5 text-xs text-df-mute">
+              {prompt ? 'Review and edit if needed' : 'Or type your instruction'}
+            </p>
+          )}
+          <label htmlFor="prompt" className="sr-only">Instruction for the agent</label>
           <textarea
             id="prompt"
-            className="input min-h-[160px] resize-y pr-12"
+            className={`input resize-y transition-all ${hasSpeech ? 'min-h-[80px]' : 'min-h-[160px]'}`}
             maxLength={500}
-            placeholder={vendor ? `Pay ${vendor.label} 12.50 RLUSD for invoice 884` : 'Approve a vendor first, then: Pay <vendor> 12.50 RLUSD for invoice 884'}
+            placeholder={
+              vendor
+                ? `Pay ${vendor.label} 12.50 RLUSD for invoice 884`
+                : 'Approve a vendor first, then: Pay <vendor> 12.50 RLUSD for invoice 884'
+            }
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          {hasSpeech && (
-            <button
-              type="button"
-              onClick={toggleRecording}
-              title={recording ? 'Stop recording' : 'Dictate instruction'}
-              aria-label={recording ? 'Stop voice recording' : 'Start voice recording'}
-              className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
-                recording
-                  ? 'border-df-yellow bg-df-yellow/10 hover:bg-df-yellow/20'
-                  : 'border-df-line bg-transparent hover:border-neutral-500'
-              }`}
-            >
-              {recording ? (
-                <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
-              ) : (
-                <MicIcon recording={false} />
-              )}
-            </button>
-          )}
         </div>
 
-        {recording && (
-          <p className="mt-1.5 flex items-center gap-2 text-xs text-neutral-400" aria-live="polite">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
-            Listening... speak your instruction, then click the button to stop.
-          </p>
-        )}
         {micError && (
-          <p role="alert" className="mt-1.5 text-xs text-neutral-400">
+          <p role="alert" className="text-xs text-neutral-400">
             <span className="text-df-yellow">Mic error.</span> {micError}
           </p>
         )}
 
-        <div className="mt-2 flex flex-wrap gap-2" aria-label="Example instructions">
+        {/* ── Example chips ── */}
+        <div className="flex flex-wrap gap-2" aria-label="Example instructions">
           {examples.map((ex) => (
-            <button key={ex.tag} type="button" className="badge border-df-line text-neutral-200 hover:border-df-yellow" onClick={() => setPrompt(ex.text)}>
+            <button
+              key={ex.tag}
+              type="button"
+              className="badge border-df-line text-neutral-200 hover:border-df-yellow hover:text-white"
+              onClick={() => setPrompt(ex.text)}
+            >
               Try: {ex.tag}
             </button>
           ))}
         </div>
 
+        {/* ── Red-team toggle (admin only) ── */}
         {data.config.redTeam && isAdmin && (
-          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-df-line p-3 text-sm">
-            <input type="checkbox" className="mt-1 h-4 w-4 accent-[#FFD60A]" checked={redTeam} onChange={(e) => setRedTeam(e.target.checked)} />
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-df-line p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-[#FFD60A]"
+              checked={redTeam}
+              onChange={(e) => setRedTeam(e.target.checked)}
+            />
             <span>
               <span className="font-semibold">Stress test: skip Delta Finance own checks</span>
               <span className="hint block">
-                Sends a forbidden payment straight to the agent wallet to show that Privy refuses to sign it on its own. Nothing is ever submitted to the ledger from this mode.
+                Sends a forbidden payment straight to the agent wallet to show that Privy refuses to sign it on its own. Nothing is ever submitted from this mode.
               </span>
             </span>
           </label>
         )}
 
-        <button className="btn-primary mt-4 w-full sm:w-auto" disabled={busy || !prompt.trim()}>
+        {/* ── Send button ── */}
+        <button
+          className="btn-primary w-full py-3 text-base"
+          disabled={busy || !prompt.trim()}
+        >
           {busy ? 'Agent is working...' : 'Send to agent'}
         </button>
       </form>
 
+      {/* ── Result ── */}
       <div aria-live="polite" className="mt-4">
         {busy && (
           <p className="hint flex items-center gap-2 text-sm">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-df-yellow" aria-hidden /> Reading the instruction, checking your limits, settling on the XRP Ledger...
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-df-yellow" aria-hidden />
+            Reading the instruction, checking your limits, settling on the XRP Ledger...
           </p>
         )}
         {error && (
@@ -241,7 +281,9 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
                   What the agent understood: <span className="mono text-white">{money(result.intent.amount)} RLUSD</span>
                   {result.intent.is_payroll && ' - payroll'}
                 </summary>
-                <pre className="mono mt-2 overflow-x-auto rounded bg-black p-3 text-xs text-neutral-200">{JSON.stringify(result.intent, null, 2)}</pre>
+                <pre className="mono mt-2 overflow-x-auto rounded bg-black p-3 text-xs text-neutral-200">
+                  {JSON.stringify(result.intent, null, 2)}
+                </pre>
               </details>
             )}
             {result.txHash && (
