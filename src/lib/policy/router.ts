@@ -66,9 +66,10 @@ export function decide(intent: Intent, policy: PolicySnapshot): Decision {
   }
 
   // ── Path B: escalate to a human. ──
+  // Only payroll and daily-limit breaches require human approval; everything else runs autonomously.
+  // Per-tx limits are enforced at the Privy wallet-policy layer independently.
   const reasons: string[] = [];
   if (intent.is_payroll) reasons.push('Payroll payments always require human approval.');
-  if (amountMicro > policy.perTxLimitMicro) reasons.push('Amount exceeds the per-payment limit.');
   if (policy.spentTodayMicro + amountMicro > policy.dailyLimitMicro) {
     reasons.push('Payment would exceed the daily autonomous spend limit.');
   }

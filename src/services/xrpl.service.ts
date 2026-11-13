@@ -107,12 +107,7 @@ export async function buildRlusdPayment(p: {
     Amount: rlusdAmount(p.amount),
     ...(p.sourceTag !== undefined ? { SourceTag: p.sourceTag } : {}),
     ...(p.destinationTag !== undefined ? { DestinationTag: p.destinationTag } : {}),
-    ...(p.invoiceId
-      ? {
-          InvoiceID: invoiceHash(p.invoiceId),
-          Memos: [{ Memo: { MemoType: hex('x402/invoice'), MemoData: hex(p.invoiceId) } }],
-        }
-      : {}),
+    ...(p.invoiceId ? { InvoiceID: invoiceHash(p.invoiceId) } : {}),
   };
   return withClient((client) => client.autofill(tx));
 }
