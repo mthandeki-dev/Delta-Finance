@@ -145,13 +145,24 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
         {/* ── Voice hero ── */}
         {hasSpeech && (
-          <div className="flex flex-col items-center gap-3 py-6">
-            {/* Outer glow rings */}
+          <div className="flex flex-col items-center gap-4 py-8">
             <div className="relative flex items-center justify-center">
+
+              {/* Idle: slow breathing glow to show it's ready */}
+              {!recording && (
+                <span
+                  className="absolute h-32 w-32 rounded-full bg-df-yellow/5 animate-pulse"
+                  style={{ animationDuration: '3s' }}
+                  aria-hidden
+                />
+              )}
+
+              {/* Recording: three sound-wave rings expanding outward */}
               {recording && (
                 <>
-                  <span className="absolute h-36 w-36 animate-ping rounded-full bg-df-yellow/10" style={{ animationDuration: '1.5s' }} aria-hidden />
-                  <span className="absolute h-28 w-28 animate-ping rounded-full bg-df-yellow/15" style={{ animationDuration: '1.5s', animationDelay: '0.3s' }} aria-hidden />
+                  <span className="absolute h-32 w-32 rounded-full border border-df-yellow/40 animate-ping" style={{ animationDuration: '1.6s' }} aria-hidden />
+                  <span className="absolute h-44 w-44 rounded-full border border-df-yellow/20 animate-ping" style={{ animationDuration: '1.6s', animationDelay: '0.35s' }} aria-hidden />
+                  <span className="absolute h-56 w-56 rounded-full border border-df-yellow/10 animate-ping" style={{ animationDuration: '1.6s', animationDelay: '0.7s' }} aria-hidden />
                 </>
               )}
 
@@ -161,19 +172,29 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
                 onClick={toggleRecording}
                 disabled={busy}
                 aria-label={recording ? 'Stop recording' : 'Start voice recording'}
-                className={`relative z-10 flex h-24 w-24 items-center justify-center rounded-full border-2 transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-df-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
+                className={`relative z-10 flex h-28 w-28 items-center justify-center rounded-full border-2 transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-df-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
                   recording
-                    ? 'border-df-yellow bg-df-yellow/10 text-df-yellow shadow-[0_0_40px_rgba(255,214,10,0.25)]'
-                    : 'border-df-line bg-df-panel text-neutral-400 hover:border-df-yellow hover:bg-df-yellow/5 hover:text-df-yellow hover:shadow-[0_0_20px_rgba(255,214,10,0.1)]'
+                    ? 'border-df-yellow bg-gradient-to-br from-df-yellow/20 to-df-yellow/5 text-df-yellow shadow-[0_0_60px_rgba(255,214,10,0.35),inset_0_0_20px_rgba(255,214,10,0.05)]'
+                    : 'border-df-line bg-df-panel text-neutral-400 hover:border-df-yellow hover:bg-gradient-to-br hover:from-df-yellow/10 hover:to-transparent hover:text-df-yellow hover:shadow-[0_0_30px_rgba(255,214,10,0.15)]'
                 }`}
               >
-                {recording ? <StopIcon /> : <MicIcon size={34} />}
+                {recording ? <StopIcon /> : <MicIcon size={38} />}
               </button>
             </div>
 
-            <p className={`text-sm font-medium transition-colors ${recording ? 'text-df-yellow' : 'text-df-mute'}`}>
-              {recording ? 'Listening — tap to stop' : 'Tap to speak'}
-            </p>
+            {/* Status label with animated dots while listening */}
+            <div className="flex items-center gap-2">
+              {recording && (
+                <span className="flex gap-0.5" aria-hidden>
+                  <span className="h-1 w-1 rounded-full bg-df-yellow animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="h-1 w-1 rounded-full bg-df-yellow animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="h-1 w-1 rounded-full bg-df-yellow animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+              )}
+              <p className={`text-sm font-medium tracking-wide transition-colors ${recording ? 'text-df-yellow' : 'text-df-mute'}`}>
+                {recording ? 'Listening' : 'Tap to speak'}
+              </p>
+            </div>
           </div>
         )}
 
