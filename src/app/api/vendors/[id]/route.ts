@@ -15,7 +15,8 @@ export const DELETE = route<{ params: Promise<{ id: string }> }>(async (_req, { 
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || !vendor.active) throw new AppError(404, 'NOT_FOUND', 'Vendor not found.');
   await prisma.vendor.update({ where: { id }, data: { active: false } });
-  await audit('VENDOR_REMOVED', { actor: `admin:${admin.xrplAddress}`, detail: { label: vendor.label, xrplAddress: vendor.xrplAddress } });
-  const privySync = await syncPrivyMandate(`admin:${admin.xrplAddress}`);
+  const actor = `admin:${admin.xrplAddress ?? admin.username}`;
+  await audit('VENDOR_REMOVED', { actor, detail: { label: vendor.label, xrplAddress: vendor.xrplAddress } });
+  const privySync = await syncPrivyMandate(actor);
   return ok({ ok: true, privySync });
 });

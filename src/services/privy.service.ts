@@ -106,7 +106,7 @@ export function buildMandatePolicy(m: { whitelist: string[]; perTxLimit: string;
   const rules: Rule[] = [];
   if (m.agentEnabled && m.whitelist.length > 0) {
     rules.push({
-      name: 'RLUSD payments to approved vendors within the per-payment cap',
+      name: 'RLUSD to approved vendors within per-payment cap',
       method: 'xrpl_signTransaction',
       conditions: [
         cond('TransactionType', 'eq', 'Payment'),
@@ -128,7 +128,9 @@ export function buildMandatePolicy(m: { whitelist: string[]; perTxLimit: string;
   return { version: '1.0', name: 'Delta Finance treasury mandate', chain_type: 'xrpl', rules };
 }
 
-/** Creates the policy or replaces its rules, then makes sure it is the wallet's only policy. */
+/** Creates the policy or replaces its rules, then makes sure it is the wallet's only policy.
+ *  If the stored policy ID no longer exists in Privy (stale app credentials, manual deletion, etc.)
+ *  a fresh policy is created automatically so the sync never gets permanently stuck. */
 export async function upsertMandatePolicy(
   walletId: string,
   existingPolicyId: string | null,
@@ -136,8 +138,14 @@ export async function upsertMandatePolicy(
 ): Promise<string> {
   let policyId = existingPolicyId;
   if (policyId) {
-    await privy(`/policies/${policyId}`, { method: 'PATCH', body: { name: policy.name, rules: policy.rules } });
-  } else {
+    try {
+      await privy(`/policies/${policyId}`, { method: 'PATCH', body: { name: policy.name, rules: policy.rules } });
+    } catch {
+      // Policy not found under current Privy app — fall through and create a new one.
+      policyId = null;
+    }
+  }
+  if (!policyId) {
     policyId = (await privy<{ id: string }>('/policies', { method: 'POST', body: policy })).id;
   }
   await privy(`/wallets/${walletId}`, { method: 'PATCH', body: { policy_ids: [policyId] } });

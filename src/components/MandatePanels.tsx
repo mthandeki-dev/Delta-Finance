@@ -244,6 +244,22 @@ export function WalletPanel({ data, wallet, isAdmin, onChange, notify }: PanelPr
     }
   }
 
+  async function reset() {
+    if (!window.confirm('Remove the current agent wallet record? The wallet will remain in Privy but the app will create a fresh one on next setup.')) return;
+    setBusy(true);
+    setError(null);
+    setSteps([]);
+    try {
+      const r = await api<{ message: string }>('/api/agent/wallet', { method: 'DELETE' });
+      notify(r.message);
+      await onChange();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="card" aria-labelledby="wallet-h">
       <p className="eyebrow">Agent wallet</p>
@@ -296,10 +312,19 @@ export function WalletPanel({ data, wallet, isAdmin, onChange, notify }: PanelPr
           ))}
         </ul>
       )}
-      {isAdmin && !ready && (
-        <button onClick={setup} disabled={busy || !data.config.privy} className="btn-primary mt-4 w-full">
-          {busy ? 'Setting up… (about 20 s)' : data.agentWallet ? 'Finish setup' : 'Set up agent wallet'}
-        </button>
+      {isAdmin && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!ready && (
+            <button onClick={setup} disabled={busy || !data.config.privy} className="btn-primary flex-1">
+              {busy ? 'Setting up… (about 20 s)' : data.agentWallet ? 'Finish setup' : 'Set up agent wallet'}
+            </button>
+          )}
+          {data.agentWallet && (
+            <button onClick={reset} disabled={busy} className="btn-ghost flex-none border-df-line text-neutral-400 hover:border-neutral-500 hover:text-white">
+              Reset wallet
+            </button>
+          )}
+        </div>
       )}
       {!data.config.privy && <p className="hint mt-2 text-xs">Add PRIVY_APP_ID and PRIVY_APP_SECRET to the server to enable this.</p>}
     </section>

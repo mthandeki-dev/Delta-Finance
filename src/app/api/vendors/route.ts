@@ -28,7 +28,8 @@ export const POST = route(async (req) => {
     update: { label, country, active: true },
     create: { label, xrplAddress, country, createdById: admin.id },
   });
-  await audit('VENDOR_WHITELISTED', { actor: `admin:${admin.xrplAddress}`, detail: { label, xrplAddress, country } });
-  const privySync = await syncPrivyMandate(`admin:${admin.xrplAddress}`);
+  const actor = `admin:${admin.xrplAddress ?? admin.username}`;
+  await audit('VENDOR_WHITELISTED', { actor, detail: { label, xrplAddress, country } });
+  const privySync = await syncPrivyMandate(actor);
   return ok({ id: vendor.id, privySync }, 201);
 });

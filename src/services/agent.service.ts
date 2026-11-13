@@ -100,15 +100,17 @@ export async function setupAgentWallet(actor: string): Promise<{ wallet: AgentWa
   let wallet = await prisma.agentWallet.findUnique({ where: { id: AGENT_WALLET_ID } });
 
   if (wallet) {
-    const privyWallet = await getPrivyWallet(wallet.privyWalletId);
-    if (!privyWallet) {
-      steps.push(`Wallet ${wallet.address} not found under current Privy credentials — provisioning a new one`);
+    const appChanged = wallet.privyAppId !== null && wallet.privyAppId !== env.privyAppId;
+    const walletGone = !appChanged && !(await getPrivyWallet(wallet.privyWalletId));
+    if (appChanged || walletGone) {
+      const reason = appChanged ? `Privy app ID changed (was ${wallet.privyAppId})` : `Wallet ${wallet.address} not found in Privy`;
+      steps.push(`${reason} — provisioning a new wallet under app ${env.privyAppId}`);
       await prisma.agentWallet.delete({ where: { id: AGENT_WALLET_ID } });
       await prisma.treasuryPolicy.update({
         where: { id: POLICY_ID },
         data: { privyPolicyId: null, privySyncedAt: null, privySyncError: null },
       });
-      await audit('AGENT_WALLET_REPLACED', { actor, detail: { staleAddress: wallet.address } });
+      await audit('AGENT_WALLET_REPLACED', { actor, detail: { staleAddress: wallet.address, reason } });
       wallet = null;
     }
   }
@@ -116,10 +118,10 @@ export async function setupAgentWallet(actor: string): Promise<{ wallet: AgentWa
   if (!wallet) {
     const created = await createXrplWallet();
     wallet = await prisma.agentWallet.create({
-      data: { id: AGENT_WALLET_ID, privyWalletId: created.id, address: created.address, publicKey: created.public_key },
+      data: { id: AGENT_WALLET_ID, privyAppId: env.privyAppId, privyWalletId: created.id, address: created.address, publicKey: created.public_key },
     });
-    steps.push(`Created Privy server wallet ${wallet.address}`);
-    await audit('AGENT_WALLET_CREATED', { actor, detail: { address: wallet.address } });
+    steps.push(`Created Privy server wallet ${wallet.address} (app: ${env.privyAppId})`);
+    await audit('AGENT_WALLET_CREATED', { actor, detail: { address: wallet.address, privyAppId: env.privyAppId } });
   }
 
   let status = await getAccountStatus(wallet.address);

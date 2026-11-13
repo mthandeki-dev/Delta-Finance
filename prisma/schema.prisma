@@ -109,6 +109,7 @@ model SecretCode {
 // Singleton row (id = "agent"): the agent's Privy server wallet.
 model AgentWallet {
   id            String   @id @default("agent")
+  privyAppId    String?
   privyWalletId String   @unique
   address       String   @unique
   publicKey     String

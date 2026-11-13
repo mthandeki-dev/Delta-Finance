@@ -75,6 +75,15 @@ export type SignResult = {
   userToken?: string;
 };
 
+/** Cancels an open Xaman payload so it can no longer be signed. Errors are silently ignored (already expired / resolved). */
+export async function cancelPayload(uuid: string): Promise<void> {
+  try {
+    await xaman().payload.cancel(uuid);
+  } catch {
+    // Payload may have already expired or been resolved — that is fine.
+  }
+}
+
 export async function getSignResult(uuid: string): Promise<SignResult> {
   let p;
   try {

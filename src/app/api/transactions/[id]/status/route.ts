@@ -1,5 +1,6 @@
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
+import { env } from '@/lib/env';
 import { AppError } from '@/lib/errors';
 import { ok, route } from '@/lib/http';
 import { fromMicro } from '@/lib/money';
@@ -32,12 +33,15 @@ export const GET = route<{ params: Promise<{ id: string }> }>(async (_req, { par
     return ok({ status: 'REJECTED', reason });
   }
 
-  // The signer must be an administrator's account, not whoever happened to scan the QR code.
-  const signer = sign.account ? await prisma.user.findUnique({ where: { xrplAddress: sign.account } }) : null;
-  if (signer?.role !== 'ADMIN') {
-    const reason = `Signed by ${sign.account ?? 'an unknown account'}, which is not an administrator. Recorded for review.`;
+  // The signer must be an administrator. Accept addresses that have ADMIN role in the DB
+  // or that appear in ADMIN_XRPL_ADDRESSES (covers admins who use password login and have no DB xrplAddress yet).
+  const signerAddress = sign.account;
+  const signer = signerAddress ? await prisma.user.findUnique({ where: { xrplAddress: signerAddress } }) : null;
+  const isAdmin = signer?.role === 'ADMIN' || (signerAddress ? env.adminAddresses.includes(signerAddress) : false);
+  if (!isAdmin) {
+    const reason = `Signed by ${signerAddress ?? 'an unknown account'}, which is not an administrator. Recorded for review.`;
     await prisma.transactionLog.update({ where: { id }, data: { status: 'FAILED', txHash: sign.txid, reason } });
-    await audit('HITL_SIGNER_NOT_ADMIN', { actor, txId: id, detail: { signer: sign.account, txid: sign.txid } });
+    await audit('HITL_SIGNER_NOT_ADMIN', { actor, txId: id, detail: { signer: signerAddress, txid: sign.txid } });
     return ok({ status: 'FAILED', txHash: sign.txid, reason });
   }
 
@@ -47,7 +51,7 @@ export const GET = route<{ params: Promise<{ id: string }> }>(async (_req, { par
 
   if (ledger.result === 'tesSUCCESS') {
     await prisma.transactionLog.update({ where: { id }, data: { status: 'EXECUTED', txHash: sign.txid, settledVia: 'XAMAN', reason: tx.reason } });
-    await audit('HITL_PAYMENT_EXECUTED', { actor: `admin:${sign.account}`, txId: id, detail: { hash: sign.txid, amount, to: tx.merchantAddress } });
+    await audit('HITL_PAYMENT_EXECUTED', { actor: `admin:${signerAddress}`, txId: id, detail: { hash: sign.txid, amount, to: tx.merchantAddress } });
     return ok({ status: 'EXECUTED', txHash: sign.txid });
   }
   const reason = `Ledger rejected the payment: ${ledger.result}.${ledger.result === 'tecPATH_DRY' ? ' The signing account or the vendor may be missing an RLUSD trust line or balance.' : ''}`;

@@ -66,11 +66,9 @@ export function ApprovalQueue({ data, isAdmin, onChange, notify }: PanelProps) {
                   <button className="btn-primary" onClick={() => setOpen(tx)}>
                     {tx.status === 'AWAITING_SIGNATURE' ? 'Check signature' : 'Review and approve'}
                   </button>
-                  {tx.status === 'PENDING_HITL' && (
-                    <button className="btn-ghost" onClick={() => reject(tx)}>
-                      Decline
-                    </button>
-                  )}
+                  <button className="btn-ghost" onClick={() => reject(tx)}>
+                    {tx.status === 'AWAITING_SIGNATURE' ? 'Cancel' : 'Decline'}
+                  </button>
                 </div>
               )}
             </li>
@@ -148,6 +146,22 @@ function ApproveDialog({ tx, data, onClose }: { tx: TxView; data: DashboardData;
     }
   }
 
+  async function cancel() {
+    if (!window.confirm('Cancel this payment request? The agent can resubmit it later.')) return;
+    setBusy(true);
+    setPolling(false);
+    setError(null);
+    try {
+      await api(`/api/transactions/${tx.id}/reject`, { method: 'POST' });
+      setFinal({ status: 'REJECTED', reason: 'Cancelled by you.' });
+    } catch (err) {
+      setError((err as Error).message);
+      if (sign || resuming) setPolling(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const step = final ? 3 : sign || resuming ? 2 : 1;
 
   return (
@@ -203,9 +217,14 @@ function ApproveDialog({ tx, data, onClose }: { tx: TxView; data: DashboardData;
                   <span className="font-semibold text-df-yellow">Not accepted.</span> {error}
                 </p>
               )}
-              <button className="btn-primary mt-4 w-full" disabled={busy || code.trim().length < 10}>
-                {busy ? 'Checking…' : 'Continue to signature'}
-              </button>
+              <div className="mt-4 flex gap-2">
+                <button className="btn-primary flex-1" disabled={busy || code.trim().length < 10}>
+                  {busy ? 'Checking…' : 'Continue to signature'}
+                </button>
+                <button type="button" className="btn-ghost" disabled={busy} onClick={cancel}>
+                  Decline
+                </button>
+              </div>
             </form>
           )}
 
@@ -234,6 +253,9 @@ function ApproveDialog({ tx, data, onClose }: { tx: TxView; data: DashboardData;
                   {error}
                 </p>
               )}
+              <button className="btn-ghost mt-3 w-full" disabled={busy} onClick={cancel}>
+                Cancel signature request
+              </button>
             </div>
           )}
 
