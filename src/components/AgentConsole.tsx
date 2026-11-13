@@ -34,7 +34,7 @@ const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
 
 const HEADLINE: Record<string, { title: string; tone: string }> = {
   EXECUTED: { title: 'Paid autonomously', tone: 'border-df-yellow' },
-  PENDING_HITL: { title: 'Sent to you for approval', tone: 'border-white' },
+  PENDING_HITL: { title: 'Sent for approval', tone: 'border-white' },
   BLOCKED: { title: 'Blocked', tone: 'border-white' },
   FAILED: { title: 'Could not complete', tone: 'border-df-line' },
 };
@@ -144,27 +144,29 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
         <div className="relative">
           <textarea
             id="prompt"
-            className="input min-h-[88px] resize-y pr-12"
+            className="input min-h-[160px] resize-y pr-12"
             maxLength={500}
             placeholder={vendor ? `Pay ${vendor.label} 12.50 RLUSD for invoice 884` : 'Approve a vendor first, then: Pay <vendor> 12.50 RLUSD for invoice 884'}
             value={prompt}
-            disabled={!isAdmin}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          {isAdmin && hasSpeech && (
+          {hasSpeech && (
             <button
               type="button"
               onClick={toggleRecording}
               title={recording ? 'Stop recording' : 'Dictate instruction'}
               aria-label={recording ? 'Stop voice recording' : 'Start voice recording'}
-              className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors
-                ${recording
+              className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                recording
                   ? 'border-df-yellow bg-df-yellow/10 hover:bg-df-yellow/20'
-                  : 'border-df-line bg-transparent hover:border-neutral-500'}`}
+                  : 'border-df-line bg-transparent hover:border-neutral-500'
+              }`}
             >
-              {recording
-                ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
-                : <MicIcon recording={false} />}
+              {recording ? (
+                <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
+              ) : (
+                <MicIcon recording={false} />
+              )}
             </button>
           )}
         </div>
@@ -172,7 +174,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
         {recording && (
           <p className="mt-1.5 flex items-center gap-2 text-xs text-neutral-400" aria-live="polite">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
-            Listening… speak your instruction, then click the button to stop.
+            Listening... speak your instruction, then click the button to stop.
           </p>
         )}
         {micError && (
@@ -183,7 +185,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
         <div className="mt-2 flex flex-wrap gap-2" aria-label="Example instructions">
           {examples.map((ex) => (
-            <button key={ex.tag} type="button" className="badge border-df-line text-neutral-200 hover:border-df-yellow" disabled={!isAdmin} onClick={() => setPrompt(ex.text)}>
+            <button key={ex.tag} type="button" className="badge border-df-line text-neutral-200 hover:border-df-yellow" onClick={() => setPrompt(ex.text)}>
               Try: {ex.tag}
             </button>
           ))}
@@ -193,51 +195,62 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-df-line p-3 text-sm">
             <input type="checkbox" className="mt-1 h-4 w-4 accent-[#FFD60A]" checked={redTeam} onChange={(e) => setRedTeam(e.target.checked)} />
             <span>
-              <span className="font-semibold">Stress test: skip Delta Finance’s own checks</span>
+              <span className="font-semibold">Stress test: skip Delta Finance own checks</span>
               <span className="hint block">
-                Sends a forbidden payment straight to the agent’s wallet to show that Privy refuses to sign it on its own. Nothing is ever submitted to the ledger from this
-                mode.
+                Sends a forbidden payment straight to the agent wallet to show that Privy refuses to sign it on its own. Nothing is ever submitted to the ledger from this mode.
               </span>
             </span>
           </label>
         )}
 
-        <button className="btn-primary mt-4 w-full sm:w-auto" disabled={busy || !isAdmin || !prompt.trim()}>
-          {busy ? 'Agent is working…' : 'Send to agent'}
+        <button className="btn-primary mt-4 w-full sm:w-auto" disabled={busy || !prompt.trim()}>
+          {busy ? 'Agent is working...' : 'Send to agent'}
         </button>
       </form>
 
       <div aria-live="polite" className="mt-4">
         {busy && (
           <p className="hint flex items-center gap-2 text-sm">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-df-yellow" aria-hidden /> Reading the instruction, checking your limits, settling on the
-            XRP Ledger…
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-df-yellow" aria-hidden /> Reading the instruction, checking your limits, settling on the XRP Ledger...
           </p>
         )}
         {error && (
           <p role="alert" className="rounded-lg border border-df-line p-3 text-sm">
-            <span className="font-semibold text-df-yellow">The agent couldn’t run.</span> {error}
+            <span className="font-semibold text-df-yellow">The agent could not run.</span> {error}
           </p>
         )}
         {result && head && (
           <div className={`rounded-lg border p-4 ${head.tone}`}>
             <p className="text-base font-semibold">
               {head.title}
-              {result.status === 'BLOCKED' && result.blockedBy && <span className="font-normal text-neutral-300"> by {LAYER_LABEL[result.blockedBy]}</span>}
+              {result.status === 'BLOCKED' && result.blockedBy && (
+                <span className="font-normal text-neutral-300"> by {LAYER_LABEL[result.blockedBy]}</span>
+              )}
             </p>
             {result.reason && <p className="mt-1 text-sm text-neutral-300">{result.reason}</p>}
-            {result.status === 'PENDING_HITL' && <p className="mt-1 text-sm text-neutral-300">It is waiting in “Needs your approval”.</p>}
+            {result.status === 'PENDING_HITL' && (
+              <p className="mt-1 text-sm text-neutral-300">
+                {isAdmin
+                  ? 'It is waiting for your approval in the section below.'
+                  : 'It has been sent to an administrator for approval.'}
+              </p>
+            )}
             {result.intent && (
               <details className="mt-3 text-sm">
                 <summary className="cursor-pointer text-neutral-300">
                   What the agent understood: <span className="mono text-white">{money(result.intent.amount)} RLUSD</span>
-                  {result.intent.is_payroll && ' · payroll'}
+                  {result.intent.is_payroll && ' - payroll'}
                 </summary>
                 <pre className="mono mt-2 overflow-x-auto rounded bg-black p-3 text-xs text-neutral-200">{JSON.stringify(result.intent, null, 2)}</pre>
               </details>
             )}
             {result.txHash && (
-              <a className="mt-3 inline-block text-sm font-semibold text-df-yellow underline" href={`${data.config.explorerTx}${result.txHash}`} target="_blank" rel="noreferrer">
+              <a
+                className="mt-3 inline-block text-sm font-semibold text-df-yellow underline"
+                href={`${data.config.explorerTx}${result.txHash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
                 View the transaction on the XRPL explorer
               </a>
             )}

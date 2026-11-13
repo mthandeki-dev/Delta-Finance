@@ -295,9 +295,9 @@ export function ActivityTable({ data }: { data: DashboardData }) {
     <section className="card" aria-labelledby="activity-h">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="eyebrow">How do I prove what it did?</p>
+          <p className="eyebrow">Payment History</p>
           <h2 id="activity-h" className="card-title">
-            Activity
+            Payment History
           </h2>
           <p className="hint mt-1">Every instruction, the decision, the reason and the ledger transaction.</p>
         </div>

@@ -6,6 +6,30 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+  # APP_URL and INTERNAL_URL auto-detect from Netlify's injected URL env var — no manual override needed.
+  #
+  # Set the following in Netlify Dashboard → Site configuration → Environment variables.
+  # Scope each to "Functions" (and "Builds" where marked):
+  #
+  #   DATABASE_URL          [Builds + Functions] Supabase/Postgres pooler URL (transaction mode, port 6543)
+  #   SESSION_SECRET        [Functions] 32+ random bytes  (openssl rand -base64 48)
+  #   NEXTAUTH_SECRET       [Functions] 32+ random bytes, separate from SESSION_SECRET
+  #   NEXTAUTH_URL          [Functions] Your Netlify site URL, e.g. https://delta-finance.netlify.app
+  #   PRIVY_APP_ID          [Functions] From https://dashboard.privy.io
+  #   PRIVY_APP_SECRET      [Functions] From https://dashboard.privy.io
+  #   XAMAN_API_KEY         [Functions] From https://apps.xaman.dev
+  #   XAMAN_API_SECRET      [Functions] From https://apps.xaman.dev
+  #   AGENT_API_KEY         [Functions] Shared secret for POST /api/agent (and x402 internal gateway)
+  #   ADMIN_XRPL_ADDRESSES  [Functions] Comma-separated XRPL addresses granted ADMIN on Xaman sign-in
+  #
+  # Optional:
+  #   ANTHROPIC_API_KEY     [Functions] Enables LLM intent parsing (falls back to deterministic parser)
+  #   LLM_MODEL             [Functions] Default: claude-haiku-5-5
+  #   ALLOW_REDTEAM_DEMO    [Functions] Set "true" to enable red-team demo mode (testnet only)
+  #   DISPLAY_FX_CODE       [Functions] Indicative display currency code (default: ZAR)
+  #   DISPLAY_FX_RATE       [Functions] Indicative display exchange rate
+  #   X402_DIRECT_SUBMIT_FALLBACK  [Functions] Set "true" to bypass t54 and submit directly to XRPL
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

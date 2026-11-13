@@ -17,10 +17,12 @@ export const env = {
     return s;
   },
   get appUrl() {
-    return optional('APP_URL', 'http://localhost:3000');
+    // APP_URL takes precedence. On Netlify, URL is auto-injected; use it as fallback.
+    return optional('APP_URL') || optional('URL') || 'http://localhost:3000';
   },
   get internalUrl() {
-    return optional('INTERNAL_URL', `http://127.0.0.1:${optional('PORT', '3000')}`);
+    // On Netlify there is no loopback — serverless functions must call themselves via the public URL.
+    return optional('INTERNAL_URL') || optional('URL') || `http://127.0.0.1:${optional('PORT', '3000')}`;
   },
   get adminAddresses() {
     return optional('ADMIN_XRPL_ADDRESSES')

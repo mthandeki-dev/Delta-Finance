@@ -40,10 +40,10 @@ function rateLimit(key: string, max = 20, windowMs = 60_000) {
 export const POST = route(async (req) => {
   const user = await getSessionUser();
   const viaKey = validApiKey(req.headers.get('x-agent-api-key'));
-  if (!viaKey && user?.role !== 'ADMIN') {
-    throw new AppError(401, 'UNAUTHENTICATED', 'Provide an admin session or a valid x-agent-api-key header.');
+  if (!viaKey && !user) {
+    throw new AppError(401, 'UNAUTHENTICATED', 'Sign in or provide a valid x-agent-api-key header.');
   }
-  const actor = user?.role === 'ADMIN' ? `admin:${user.xrplAddress}` : 'agent-api';
+  const actor = user ? `${user.role.toLowerCase()}:${user.xrplAddress ?? user.email ?? user.id}` : 'agent-api';
   rateLimit(actor);
 
   const body = await readJson<{ prompt?: unknown; redTeam?: unknown }>(req);
