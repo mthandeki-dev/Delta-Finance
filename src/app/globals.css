@@ -7,7 +7,18 @@
 }
 
 body {
-  @apply bg-df-black text-white antialiased;
+  @apply bg-df-obsidian text-white antialiased;
+}
+
+/* CRT dot-matrix background texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.022) 1px, transparent 1px);
+  background-size: 3px 3px;
 }
 
 /* Visible keyboard focus everywhere */
@@ -18,7 +29,7 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-xl border border-df-line bg-df-panel p-5;
+    @apply rounded-xl border border-white/[0.08] bg-df-panel/90 p-5 backdrop-blur-sm;
   }
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-widest text-df-yellow;
@@ -33,19 +44,19 @@ body {
     @apply mb-1 block text-sm font-medium text-neutral-200;
   }
   .input {
-    @apply w-full rounded-lg border border-df-line bg-black px-3 py-2 text-white placeholder:text-neutral-500 focus:border-df-yellow focus:outline-none;
+    @apply w-full rounded-xl border border-df-line bg-white/[0.04] px-3 py-2 text-white placeholder:text-neutral-600 focus:border-df-cyan/40 focus:outline-none focus:ring-1 focus:ring-df-cyan/[0.12];
   }
   .btn {
-    @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-primary {
-    @apply btn bg-df-yellow text-black hover:bg-df-amber;
+    @apply btn bg-df-yellow text-black hover:bg-df-amber shadow-[0_0_20px_rgba(255,214,10,0.2)] hover:shadow-[0_0_32px_rgba(255,214,10,0.38)];
   }
   .btn-ghost {
-    @apply btn border border-df-line bg-transparent text-white hover:border-neutral-500;
+    @apply btn border border-white/[0.1] bg-white/[0.04] text-white hover:border-white/[0.2] hover:bg-white/[0.08];
   }
   .btn-danger {
-    @apply btn border border-white bg-white text-black hover:bg-neutral-200;
+    @apply btn border border-white/80 bg-white/90 text-black hover:bg-white;
   }
   .mono {
     @apply font-mono tabular-nums;
@@ -53,6 +64,146 @@ body {
   .badge {
     @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold;
   }
+
+  /* ── Sharp card: 2px border + hard offset shadow (90s terminal feel) ── */
+  .card-sharp {
+    @apply rounded-xl bg-df-panel p-4;
+    border: 2px solid rgba(255,255,255,0.11);
+    box-shadow: 3px 3px 0px rgba(0,242,254,0.13);
+  }
+
+  /* ── Tactile status badges ── */
+  .badge-noise    { @apply badge border-orange-400/50 bg-orange-400/[0.08] text-orange-300; }
+  .badge-verified { @apply badge border-df-cyan/50 bg-df-cyan/[0.08] text-df-cyan; }
+  .badge-policy   { @apply badge border-green-400/50 bg-green-400/[0.08] text-green-300; }
+  .badge-settled  { @apply badge border-df-yellow/50 bg-df-yellow/[0.08] text-df-yellow; }
+  .badge-pending  { @apply badge border-white/30 bg-white/[0.04] text-neutral-300; }
+  .badge-blocked  { @apply badge border-red-400/50 bg-red-400/[0.08] text-red-300; }
+  .badge-live     { @apply badge border-df-cyan/40 bg-df-cyan/[0.06] text-df-cyan; }
+
+  /* ── Terminal data number ── */
+  .data-mono {
+    @apply font-mono tabular-nums;
+    letter-spacing: -0.02em;
+    font-feature-settings: "tnum";
+  }
+
+  /* ── Filler word highlight (struck-through, dimmed orange) ── */
+  .filler-text {
+    text-decoration: line-through;
+    text-decoration-color: rgba(251,146,60,0.55);
+    opacity: 0.44;
+  }
+}
+
+/* ── Voice Orb ── */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1);    opacity: 0.72; }
+  50%       { transform: scale(1.07); opacity: 1; }
+}
+
+@keyframes orb-ripple {
+  0%   { transform: scale(1);   opacity: 0.65; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+@keyframes orb-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes orb-lock {
+  0%   { transform: scale(0.85); opacity: 0; }
+  60%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+.orb-breathe   { animation: orb-breathe 3.6s ease-in-out infinite; }
+.orb-ring-1    { animation: orb-ripple  1.9s ease-out infinite; }
+.orb-ring-2    { animation: orb-ripple  1.9s ease-out infinite 0.55s; }
+.orb-ring-3    { animation: orb-ripple  1.9s ease-out infinite 1.1s; }
+.orb-spin-arc  { animation: orb-spin    1.3s linear infinite; }
+.orb-lock-ring     { animation: orb-lock          0.45s ease-out forwards; }
+.orb-filter-glitch { animation: orb-filter-glitch 0.45s ease-in-out 2; }
+
+/* ── Orb filter glitch (amber processing flash) ── */
+@keyframes orb-filter-glitch {
+  0%, 100% { transform: scale(1) skewX(0deg);     opacity: 1; }
+  20%       { transform: scale(0.97) skewX(0.8deg); opacity: 0.72; }
+  40%       { transform: scale(1.03) skewX(-0.5deg); opacity: 0.9; }
+  60%       { transform: scale(0.98) skewX(0.3deg);  opacity: 0.78; }
+  80%       { transform: scale(1.01) skewX(-0.2deg); opacity: 0.95; }
+}
+
+/* ── Telemetry step reveal ── */
+@keyframes telem-step-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.telem-step   { animation: telem-step-in 0.28s ease-out both; }
+.telem-step-2 { animation: telem-step-in 0.28s ease-out 0.12s both; }
+.telem-step-3 { animation: telem-step-in 0.28s ease-out 0.24s both; }
+
+/* ── Payment simulation (8-second loop) ── */
+@keyframes sim-prompt-anim {
+  0%        { opacity: 0; transform: translateY(5px); }
+  8%        { opacity: 1; transform: translateY(0); }
+  65%       { opacity: 1; transform: translateY(0); }
+  74%       { opacity: 0; transform: translateY(-3px); }
+  100%      { opacity: 0; }
+}
+
+@keyframes sim-check1-anim {
+  0%, 15%   { opacity: 0; transform: translateX(-5px); }
+  23%       { opacity: 1; transform: translateX(0); }
+  65%       { opacity: 1; }
+  74%       { opacity: 0; }
+  100%      { opacity: 0; }
+}
+
+@keyframes sim-check2-anim {
+  0%, 27%   { opacity: 0; transform: translateX(-5px); }
+  35%       { opacity: 1; transform: translateX(0); }
+  65%       { opacity: 1; }
+  74%       { opacity: 0; }
+  100%      { opacity: 0; }
+}
+
+@keyframes sim-check3-anim {
+  0%, 39%   { opacity: 0; transform: translateX(-5px); }
+  47%       { opacity: 1; transform: translateX(0); }
+  65%       { opacity: 1; }
+  74%       { opacity: 0; }
+  100%      { opacity: 0; }
+}
+
+@keyframes sim-settle-anim {
+  0%, 60%   { opacity: 0; transform: scale(0.96); }
+  70%       { opacity: 1; transform: scale(1); }
+  87%       { opacity: 1; transform: scale(1); }
+  96%       { opacity: 0; transform: scale(1.02); }
+  100%      { opacity: 0; }
+}
+
+@keyframes sim-cursor-blink {
+  0%, 100%  { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.sim-prompt  { animation: sim-prompt-anim  8s ease-in-out infinite; }
+.sim-check-1 { animation: sim-check1-anim  8s ease-in-out infinite; }
+.sim-check-2 { animation: sim-check2-anim  8s ease-in-out infinite; }
+.sim-check-3 { animation: sim-check3-anim  8s ease-in-out infinite; }
+.sim-settle  { animation: sim-settle-anim  8s ease-in-out infinite; }
+.sim-cursor  {
+  animation: sim-cursor-blink 0.85s ease-in-out infinite;
+  display: inline-block;
+  width: 1.5px;
+  height: 0.9em;
+  background: currentColor;
+  vertical-align: text-bottom;
+  margin-left: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

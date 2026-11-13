@@ -9,10 +9,13 @@ const config: Config = {
           yellow: '#FFD60A',
           amber: '#E6BE00',
           black: '#000000',
+          obsidian: '#090A0F',
           ink: '#0B0B0B',
           panel: '#111111',
           line: '#262626',
           mute: '#8A8A8A',
+          blue: '#4FACFE',
+          cyan: '#00F2FE',
         },
       },
       fontFamily: {
