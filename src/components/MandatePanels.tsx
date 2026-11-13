@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { WalletStatus } from '@/lib/types';
 import { api, money, shortAddress, timeAgo } from './api';
 import type { PanelProps } from './Dashboard';
@@ -84,7 +84,7 @@ export function MandatePanel({ data, isAdmin, onChange, notify }: PanelProps) {
             }}
           />
           <p id="pertx-help" className="hint mt-1 text-xs">
-            Also written into the agent’s wallet policy at Privy, where the agent cannot change it.
+            Also written into the agent's wallet policy at Privy, where the agent cannot change it.
           </p>
         </div>
         {error && (
@@ -348,7 +348,7 @@ export function WalletPanel({ data, wallet, isAdmin, onChange, notify }: PanelPr
           </div>
         </dl>
       ) : (
-        <p className="hint mt-1">Creates the agent’s wallet at Privy, activates it on Testnet, opens an RLUSD trust line and attaches your limits. Takes about 20 seconds.</p>
+        <p className="hint mt-1">Creates the agent's wallet at Privy, activates it on Testnet, opens an RLUSD trust line and attaches your limits. Takes about 20 seconds.</p>
       )}
       {wallet && !wallet.reachable && <p className="hint mt-2 text-xs">The ledger could not be reached just now; balances may be out of date.</p>}
       {wallet?.activated && wallet.rlusdTrustline && Number(wallet.rlusdBalance) === 0 && (
@@ -393,80 +393,107 @@ export function WalletPanel({ data, wallet, isAdmin, onChange, notify }: PanelPr
 
 // ───────────────────────────── Secret codes ─────────────────────────────
 
-export function SecretCodePanel({ data, isAdmin, onChange, notify }: PanelProps) {
-  const [fresh, setFresh] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const active = data.secretCodes.filter((c) => c.state === 'ACTIVE');
+export function SecretCodePanel({ data, isAdmin, onChange: _onChange, notify }: PanelProps) {
+  const hasPendingHitl = data.transactions.some((t) => t.status === 'PENDING_HITL');
+  const [autoCode, setAutoCode] = useState<{ id: string; display: string } | null>(null);
+  const [countdown, setCountdown] = useState(5);
+  // Ref holds the live code's DB id so async cleanup can always reach it
+  const prevIdRef = useRef<string | null>(null);
 
-  async function generate() {
-    setBusy(true);
-    try {
-      const r = await api<{ code: string }>('/api/secret-codes', { method: 'POST', body: {} });
-      setFresh(r.code);
-      await onChange();
-    } catch (err) {
-      notify((err as Error).message);
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (!hasPendingHitl || !isAdmin) {
+      // Payment resolved or non-admin — revoke the rotating code and clear display
+      const id = prevIdRef.current;
+      if (id) {
+        api(`/api/secret-codes/${id}`, { method: 'DELETE' }).catch(() => null);
+        prevIdRef.current = null;
+      }
+      setAutoCode(null);
+      setCountdown(5);
+      return;
     }
-  }
 
-  async function revoke(id: string) {
-    try {
-      await api(`/api/secret-codes/${id}`, { method: 'DELETE' });
-      await onChange();
-    } catch (err) {
-      notify((err as Error).message);
+    let active = true;
+
+    async function cycle() {
+      if (!active) return;
+      try {
+        const r = await api<{ id: string; code: string }>('/api/secret-codes', { method: 'POST', body: {} });
+        if (!active) {
+          // Component unmounted while the request was in-flight — revoke immediately
+          api(`/api/secret-codes/${r.id}`, { method: 'DELETE' }).catch(() => null);
+          return;
+        }
+        const prevId = prevIdRef.current;
+        prevIdRef.current = r.id;
+        setAutoCode({ id: r.id, display: r.code });
+        setCountdown(5);
+        // Revoke the outgoing code after the new one is stored
+        if (prevId) {
+          api(`/api/secret-codes/${prevId}`, { method: 'DELETE' }).catch(() => null);
+        }
+      } catch {
+        // silent — parent polls every 5 s and the cycle will retry
+      }
     }
-  }
+
+    cycle(); // generate immediately on first render with a pending payment
+
+    const codeTimer = setInterval(cycle, 5000);
+    const tickTimer = setInterval(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
+
+    return () => {
+      active = false;
+      clearInterval(codeTimer);
+      clearInterval(tickTimer);
+      const id = prevIdRef.current;
+      if (id) {
+        api(`/api/secret-codes/${id}`, { method: 'DELETE' }).catch(() => null);
+        prevIdRef.current = null;
+      }
+    };
+  }, [hasPendingHitl, isAdmin]);
 
   return (
     <section className="card" aria-labelledby="codes-h">
       <p className="eyebrow">Approvals</p>
-      <h2 id="codes-h" className="card-title">
-        Approval codes
-      </h2>
+      <h2 id="codes-h" className="card-title">Approval codes</h2>
       <p className="hint mt-1">A one-time code unlocks one payment that needs approval. You still sign the payment yourself in Xaman.</p>
 
-      {fresh && (
-        <div className="mt-4 rounded-lg border border-df-yellow p-3" role="status">
-          <p className="text-sm font-semibold text-df-yellow">Copy this code now. It will not be shown again.</p>
-          <p className="mono mt-2 select-all break-all text-base">{fresh}</p>
-          <div className="mt-3 flex gap-2">
+      {!hasPendingHitl ? (
+        <p className="mt-4 rounded-lg border border-dashed border-df-line p-4 text-sm text-neutral-400">
+          No payments awaiting approval — a code will appear here automatically when one arrives.
+        </p>
+      ) : !autoCode ? (
+        <p className="mt-4 animate-pulse text-sm text-df-mute">Generating code…</p>
+      ) : (
+        <div className="mt-4 rounded-lg border border-df-yellow p-4" role="status" aria-live="polite" aria-atomic="true">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-df-yellow">Active code</p>
+            <span className="tabular-nums text-xs text-df-mute">Rotates in {countdown}s</span>
+          </div>
+          <p className="mono mt-2 select-all break-all text-base tracking-wide">{autoCode.display}</p>
+          {/* Countdown progress bar — drains left-to-right over 5 seconds */}
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-df-line">
+            <div
+              className="h-full rounded-full bg-df-yellow transition-all duration-1000"
+              style={{ width: `${(countdown / 5) * 100}%` }}
+            />
+          </div>
+          <div className="mt-3">
             <button
-              className="btn-ghost"
-              onClick={() => navigator.clipboard?.writeText(fresh).then(() => notify('Code copied.'), () => notify('Copy failed. Select the code and copy it manually.'))}
+              className="btn-ghost text-sm"
+              onClick={() =>
+                navigator.clipboard?.writeText(autoCode.display)
+                  .then(() => notify('Code copied.'))
+                  .catch(() => notify('Copy failed — select the code and copy it manually.'))
+              }
             >
               Copy
             </button>
-            <button className="btn-ghost" onClick={() => setFresh(null)}>
-              I’ve saved it
-            </button>
           </div>
+          <p className="hint mt-2 text-xs">Enter the current code in the approval dialog before it rotates.</p>
         </div>
-      )}
-
-      {active.length > 0 && (
-        <ul className="mt-4 divide-y divide-df-line text-sm">
-          {active.map((c) => (
-            <li key={c.id} className="flex items-center justify-between gap-3 py-2">
-              <span>
-                <span className="mono">DF-{c.prefix}-•••••</span>
-                <span className="hint ml-2 text-xs">expires {new Date(c.expiresAt).toLocaleString()}</span>
-              </span>
-              {isAdmin && (
-                <button className="btn-ghost" onClick={() => revoke(c.id)} aria-label={`Revoke code DF-${c.prefix}`}>
-                  Revoke
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {isAdmin && (
-        <button onClick={generate} disabled={busy} className="btn-primary mt-4 w-full">
-          {busy ? 'Generating…' : 'Generate approval code'}
-        </button>
       )}
     </section>
   );
