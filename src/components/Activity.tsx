@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DashboardData, TxView } from '@/lib/types';
 import { api, LAYER_LABEL, localEquivalent, money, shortAddress, STATUS_LABEL, timeAgo } from './api';
 import type { PanelProps } from './Dashboard';
+import { WhitelistBadge } from './WhitelistBadge';
 
 function StatusBadge({ tx }: { tx: TxView }) {
   const tone =
@@ -53,6 +54,7 @@ export function ApprovalQueue({ data, isAdmin, onChange, notify }: PanelProps) {
                   <p className="font-semibold">
                     <span className="mono">{money(tx.amountRlusd)}</span> RLUSD to {payee(tx)}
                   </p>
+                  <WhitelistBadge whitelisted={tx.whitelisted} />
                   {localEquivalent(tx.amountRlusd, data.config.displayFx) && <p className="hint text-xs">{localEquivalent(tx.amountRlusd, data.config.displayFx)} (indicative)</p>}
                   <p className="hint mt-1 text-sm">{tx.reason}</p>
                   <p className="hint mt-1 truncate text-xs" title={tx.prompt}>
@@ -362,6 +364,7 @@ export function ActivityTable({ data }: { data: DashboardData }) {
                     ) : (
                       <p className="text-neutral-300">No payment understood</p>
                     )}
+                    {tx.merchantAddress && <WhitelistBadge whitelisted={tx.whitelisted} />}
                     <p className="hint mt-0.5 max-w-xs truncate text-xs" title={tx.prompt}>
                       “{tx.prompt}”
                     </p>

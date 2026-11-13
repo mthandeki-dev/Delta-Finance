@@ -51,6 +51,7 @@ export const STATUS_LABEL: Record<string, string> = {
 export const LAYER_LABEL: Record<string, string> = {
   INTENT_VALIDATION: 'Instruction check',
   APP_POLICY: 'Treasury policy',
+  BACKEND_VERIFICATION: 'Verification gate',
   X402_GATEWAY: 'Settlement gateway',
   PRIVY_POLICY: 'Privy wallet policy',
   T54_FACILITATOR: 't54 facilitator',

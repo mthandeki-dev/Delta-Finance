@@ -15,6 +15,7 @@ import { AppError, errorMessage } from '@/lib/errors';
 import { fromMicro, numberToDecimalString, toMicro } from '@/lib/money';
 import { decide, type Decision, type Intent } from '@/lib/policy/router';
 import { IntentError, parseIntent } from './llm.service';
+import { verify as verifyProposal } from './verification.service';
 import { buildMandatePolicy, createXrplWallet, getPrivyWallet, PrivyPolicyDenied, signXrplTransaction, upsertMandatePolicy } from './privy.service';
 import { payViaX402, X402Denied } from './t54.service';
 import {
@@ -175,7 +176,7 @@ const outcome = (tx: TransactionLog, intent: Intent | null): AgentOutcome => ({
   intent,
 });
 
-export async function runAgent(input: { prompt: string; actor: string; redTeam?: boolean }): Promise<AgentOutcome> {
+export async function runAgent(input: { prompt: string; actor: string; redTeam?: boolean; privyToken?: string | null; userId?: string | null }): Promise<AgentOutcome> {
   const prompt = input.prompt.trim();
   const { actor } = input;
   const vendors = await prisma.vendor.findMany({ where: { active: true } });
@@ -256,7 +257,24 @@ export async function runAgent(input: { prompt: string; actor: string; redTeam?:
       return outcome(tx, intent);
     }
 
-    // 3. Autonomous execution
+    // 3. Backend verification gate (between app-policy router and payment execution)
+    const vr = await verifyProposal({
+      intent,
+      actor,
+      privyToken: input.privyToken ?? null,
+      skipPrivyAuth: !input.privyToken && Boolean(input.userId),
+      userId: input.userId ?? null,
+    });
+    if (!vr.passed) {
+      const tx = await prisma.transactionLog.create({
+        data: { ...base, route: 'BLOCKED', status: 'BLOCKED', blockedBy: 'BACKEND_VERIFICATION', reason: vr.userMessage },
+      });
+      await prisma.proposalVerification.update({ where: { id: vr.proposalVerificationId }, data: { txId: tx.id } });
+      await audit('AGENT_BLOCKED', { actor, txId: tx.id, detail: { layer: 'BACKEND_VERIFICATION', failedCheck: vr.failedCheck } });
+      return outcome(tx, intent);
+    }
+
+    // 4. Autonomous execution
     const tx = await prisma.transactionLog.create({
       data: { ...base, route: 'AUTONOMOUS', status: 'PENDING' },
     });

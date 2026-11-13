@@ -53,7 +53,9 @@ export const POST = route(async (req) => {
     throw new AppError(403, 'REDTEAM_DISABLED', 'The red-team test is only available to admins when ALLOW_REDTEAM_DEMO is on.');
   }
 
-  const result = await runAgent({ prompt, actor, redTeam });
+  const authHeader = req.headers.get('authorization') ?? '';
+  const privyToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const result = await runAgent({ prompt, actor, redTeam, privyToken, userId: user?.id ?? null });
   const status = result.status === 'EXECUTED' ? 200 : result.status === 'PENDING_HITL' ? 202 : result.status === 'BLOCKED' ? 403 : 502;
   return ok(result, status);
 });

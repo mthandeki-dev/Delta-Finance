@@ -5,6 +5,7 @@ import { ok, readJson, route, str } from '@/lib/http';
 import { fromMicro } from '@/lib/money';
 import { parseSecretCode, verifySecret } from '@/lib/secret-code';
 import { requireAdmin } from '@/lib/session';
+import { verify as verifyProposal } from '@/services/verification.service';
 import { createPaymentRequest } from '@/services/xaman.service';
 
 export const runtime = 'nodejs';
@@ -52,6 +53,25 @@ export const POST = route<{ params: Promise<{ id: string }> }>(async (req, { par
     });
     await audit('AGENT_BLOCKED', { actor, txId: id, detail: { layer: 'APP_POLICY', reason: 'vendor no longer whitelisted' } });
     throw new AppError(409, 'VENDOR_NOT_WHITELISTED', 'This vendor is no longer approved. The payment has been blocked.');
+  }
+
+  // Backend verification gate (WHITELIST + DUPLICATE only; PRIVY_AUTH skipped for admin session)
+  const intentAmount = Number(fromMicro(BigInt(tx.amountRlusd.mul(1_000_000).toFixed(0))));
+  const vr = await verifyProposal({
+    intent: { action: 'PAY', amount: intentAmount, merchant_address: tx.merchantAddress, is_payroll: tx.isPayroll },
+    actor,
+    txId: id,
+    skipPrivyAuth: true,
+    userId: admin.id,
+    adminApprovalEvidence: { codeId: row.id, adminId: admin.id },
+  });
+  if (!vr.passed) {
+    await prisma.transactionLog.update({
+      where: { id },
+      data: { route: 'BLOCKED', status: 'BLOCKED', blockedBy: 'BACKEND_VERIFICATION', reason: vr.userMessage },
+    });
+    await audit('AGENT_BLOCKED', { actor, txId: id, detail: { layer: 'BACKEND_VERIFICATION', failedCheck: vr.failedCheck } });
+    throw new AppError(409, 'VERIFICATION_FAILED', vr.userMessage ?? 'The payment was blocked by a verification check.');
   }
 
   // Burn the code atomically so two concurrent approvals cannot share it.

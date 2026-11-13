@@ -25,8 +25,9 @@ export type TxView = {
   isPayroll: boolean;
   route: 'AUTONOMOUS' | 'HITL' | 'BLOCKED';
   status: 'PENDING' | 'PENDING_HITL' | 'AWAITING_SIGNATURE' | 'EXECUTED' | 'BLOCKED' | 'REJECTED' | 'FAILED';
-  blockedBy: 'INTENT_VALIDATION' | 'APP_POLICY' | 'X402_GATEWAY' | 'PRIVY_POLICY' | 'T54_FACILITATOR' | null;
+  blockedBy: 'INTENT_VALIDATION' | 'APP_POLICY' | 'BACKEND_VERIFICATION' | 'X402_GATEWAY' | 'PRIVY_POLICY' | 'T54_FACILITATOR' | null;
   reason: string | null;
+  whitelisted: boolean;
   txHash: string | null;
   settledVia: string | null;
 };

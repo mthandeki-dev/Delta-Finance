@@ -45,6 +45,14 @@ export const env = {
   get agentApiKey() {
     return required('AGENT_API_KEY');
   },
+  get privyVerificationKey() {
+    return optional('PRIVY_VERIFICATION_KEY');
+  },
+  /** ZAR per 1 RLUSD for the threshold check. Must come from server config, never from the request. */
+  get fxZarPerRlusd() {
+    const v = Number(optional('FX_ZAR_PER_RLUSD', '18'));
+    return Number.isFinite(v) && v > 0 ? v : 18;
+  },
   get anthropicKey() {
     return optional('ANTHROPIC_API_KEY');
   },
@@ -84,6 +92,9 @@ export const env = {
     },
     get privy() {
       return Boolean(process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET);
+    },
+    get privyVerification() {
+      return Boolean(process.env.PRIVY_APP_ID && process.env.PRIVY_VERIFICATION_KEY);
     },
     get llm() {
       return Boolean(process.env.ANTHROPIC_API_KEY);

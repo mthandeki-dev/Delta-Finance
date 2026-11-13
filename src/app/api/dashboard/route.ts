@@ -69,6 +69,7 @@ export const GET = route(async () => {
       reason: t.reason,
       txHash: t.txHash,
       settledVia: t.settledVia,
+      whitelisted: t.merchantAddress ? labels.has(t.merchantAddress) : false,
     })),
     agentWallet: wallet ? { address: wallet.address, trustlineSet: wallet.trustlineSet } : null,
     config: {

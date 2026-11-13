@@ -30,11 +30,12 @@ enum TxStatus {
   FAILED // technical failure
 }
 
-// Which enforcement layer refused the payment. Everything except INTENT_VALIDATION
-// and APP_POLICY lives outside this application's own process.
+// Which enforcement layer refused the payment. Everything except INTENT_VALIDATION,
+// APP_POLICY and BACKEND_VERIFICATION lives outside this application's own process.
 enum BlockLayer {
   INTENT_VALIDATION
   APP_POLICY
+  BACKEND_VERIFICATION
   X402_GATEWAY
   PRIVY_POLICY
   T54_FACILITATOR
@@ -57,10 +58,14 @@ model User {
   updatedAt             DateTime @updatedAt
   lastLoginAt           DateTime @default(now())
 
-  policiesUpdated TreasuryPolicy[]
-  vendorsCreated  Vendor[]
-  secretCodes     SecretCode[]
-  approvals       TransactionLog[] @relation("ApprovedBy")
+  privyUserId          String?               @unique
+  thresholdAmountRand  Decimal?              @db.Decimal(20, 2)
+
+  policiesUpdated      TreasuryPolicy[]
+  vendorsCreated       Vendor[]
+  secretCodes          SecretCode[]
+  approvals            TransactionLog[]      @relation("ApprovedBy")
+  proposalVerifications ProposalVerification[]
 }
 
 // Singleton row (id = "default"): the treasury mandate the agent operates under.
@@ -140,11 +145,33 @@ model TransactionLog {
   hitlAttempts     Int         @default(0)
   approvedById     String?
   approvedBy       User?       @relation("ApprovedBy", fields: [approvedById], references: [id])
-  auditLogs        AuditLog[]
+  auditLogs             AuditLog[]
+  proposalVerifications ProposalVerification[]
 
   @@index([createdAt])
   @@index([status])
   @@index([route, status, createdAt])
+  @@index([merchantAddress, amountRlusd, createdAt])
+}
+
+// One row per agent proposal: records every verification check regardless of outcome.
+model ProposalVerification {
+  id           String          @id @default(cuid())
+  createdAt    DateTime        @default(now())
+  txId         String?
+  tx           TransactionLog? @relation(fields: [txId], references: [id])
+  userId       String?
+  user         User?           @relation(fields: [userId], references: [id])
+  aiProposal   Json
+  checks       Json
+  passed       Boolean
+  failedCheck  String?
+  reason       String?
+  userMessage  String?
+  xrplTxHash   String?
+
+  @@index([txId])
+  @@index([createdAt])
 }
 
 // Append-only audit trail (also mirrored to stdout for CloudWatch).

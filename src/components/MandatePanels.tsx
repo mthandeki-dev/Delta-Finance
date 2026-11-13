@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { WalletStatus } from '@/lib/types';
 import { api, money, shortAddress, timeAgo } from './api';
 import type { PanelProps } from './Dashboard';
+import { WhitelistBadge } from './WhitelistBadge';
 
 type SyncResult = { privySync?: { ok: boolean; skipped?: boolean; error?: string } };
 const syncNote = (r: SyncResult) =>
@@ -185,6 +186,7 @@ export function VendorPanel({ data, isAdmin, onChange, notify }: PanelProps) {
                       {v.isVendor ? 'auto' : 'HITL'}
                     </span>
                   </p>
+                  <WhitelistBadge whitelisted={true} />
                   <p className="mono text-xs text-neutral-400" title={v.xrplAddress}>
                     {shortAddress(v.xrplAddress)}
                   </p>
