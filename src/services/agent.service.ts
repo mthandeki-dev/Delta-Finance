@@ -15,7 +15,7 @@ import { AppError, errorMessage } from '@/lib/errors';
 import { fromMicro, numberToDecimalString, toMicro } from '@/lib/money';
 import { decide, type Decision, type Intent } from '@/lib/policy/router';
 import { IntentError, parseIntent } from './llm.service';
-import { buildMandatePolicy, createXrplWallet, PrivyPolicyDenied, signXrplTransaction, upsertMandatePolicy } from './privy.service';
+import { buildMandatePolicy, createXrplWallet, getPrivyWallet, PrivyPolicyDenied, signXrplTransaction, upsertMandatePolicy } from './privy.service';
 import { payViaX402, X402Denied } from './t54.service';
 import {
   buildRlusdPayment,
@@ -92,10 +92,26 @@ export async function syncPrivyMandate(actor: string): Promise<{ ok: boolean; sk
 
 // ─────────────────────────────── Agent wallet setup ───────────────────────────────
 
-/** Idempotent provisioning: Privy wallet → faucet activation → RLUSD trust line → mandate policy. */
+/** Idempotent provisioning: Privy wallet → faucet activation → RLUSD trust line → mandate policy.
+ *  If the stored wallet ID is not found under the current Privy credentials (e.g. after an app switch),
+ *  the stale record is replaced with a fresh wallet from the current app. */
 export async function setupAgentWallet(actor: string): Promise<{ wallet: AgentWallet; steps: string[] }> {
   const steps: string[] = [];
   let wallet = await prisma.agentWallet.findUnique({ where: { id: AGENT_WALLET_ID } });
+
+  if (wallet) {
+    const privyWallet = await getPrivyWallet(wallet.privyWalletId);
+    if (!privyWallet) {
+      steps.push(`Wallet ${wallet.address} not found under current Privy credentials — provisioning a new one`);
+      await prisma.agentWallet.delete({ where: { id: AGENT_WALLET_ID } });
+      await prisma.treasuryPolicy.update({
+        where: { id: POLICY_ID },
+        data: { privyPolicyId: null, privySyncedAt: null, privySyncError: null },
+      });
+      await audit('AGENT_WALLET_REPLACED', { actor, detail: { staleAddress: wallet.address } });
+      wallet = null;
+    }
+  }
 
   if (!wallet) {
     const created = await createXrplWallet();

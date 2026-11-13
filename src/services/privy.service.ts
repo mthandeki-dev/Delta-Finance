@@ -58,6 +58,15 @@ export function createXrplWallet(): Promise<PrivyWallet> {
   return privy<PrivyWallet>('/wallets', { method: 'POST', body: { chain_type: 'xrpl' } });
 }
 
+/** Returns the wallet if it exists under the current Privy app credentials, or null if not found. */
+export async function getPrivyWallet(walletId: string): Promise<PrivyWallet | null> {
+  try {
+    return await privy<PrivyWallet>(`/wallets/${walletId}`, { method: 'GET' });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Signs an autofilled XRPL transaction with the agent wallet.
  * Returns the fully signed blob, ready to submit (or hand to the x402 facilitator).
