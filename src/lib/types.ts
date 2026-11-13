@@ -94,3 +94,40 @@ export type AgentResult = {
   txHash: string | null;
   intent: { action: 'PAY'; amount: number; merchant_address: string; is_payroll: boolean } | null;
 };
+
+export type InventoryItem = {
+  id: string;
+  itemName: string;
+  unit: string;
+  currentStock: number;
+  minimumThreshold: number;
+  restockQuantity: number;
+  unitPriceRlusd: number;
+  maxSpendLimit: number;
+  fulfillmentChannel: 'XRPL_VENDOR' | 'EXTERNAL_WEB';
+  vendorName: string;
+  vendorWalletAddress: string | null;
+  externalProductUrl: string | null;
+  restockStatus: 'IDLE' | 'PENDING_PAYMENT' | 'ORDERED' | 'MANUAL_REVIEW';
+  lastRestockAt: string | null;
+  lastRestockTxHash: string | null;
+  lastRestockOrderId: string | null;
+  screenshotPath: string | null;
+  active: boolean;
+  createdAt: string;
+};
+
+export type AnalyticsData = {
+  monthlySpend: { month: string; amountRlusd: number }[];
+  itemSpend: { itemName: string; amountRlusd: number }[];
+  inventoryLevels: { itemName: string; currentStock: number; minimumThreshold: number; unit: string; restockStatus: string; pendingStock: number }[];
+  summary: { totalOutRlusd: number; totalInRlusd: number };
+};
+
+export type FinanceAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  createdAt: string;
+};

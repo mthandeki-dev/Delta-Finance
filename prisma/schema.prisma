@@ -41,6 +41,23 @@ enum BlockLayer {
   T54_FACILITATOR
 }
 
+enum FulfillmentChannel {
+  XRPL_VENDOR
+  EXTERNAL_WEB
+}
+
+enum RestockStatus {
+  IDLE
+  PENDING_PAYMENT
+  ORDERED
+  MANUAL_REVIEW
+}
+
+enum LedgerDirection {
+  INCOMING
+  OUTGOING
+}
+
 model User {
   id                    String   @id @default(cuid())
   xrplAddress           String?  @unique
@@ -172,6 +189,55 @@ model ProposalVerification {
 
   @@index([txId])
   @@index([createdAt])
+}
+
+model Inventory {
+  id                   String             @id @default(cuid())
+  itemName             String
+  unit                 String
+  currentStock         Decimal            @db.Decimal(20, 6)
+  minimumThreshold     Decimal            @db.Decimal(20, 6)
+  restockQuantity      Decimal            @default(20) @db.Decimal(20, 6)
+  unitPriceRlusd       Decimal            @db.Decimal(20, 6)
+  fulfillmentChannel   FulfillmentChannel @default(XRPL_VENDOR)
+  vendorName           String
+  vendorWalletAddress  String?
+  externalProductUrl   String?
+  maxSpendLimit        Decimal            @db.Decimal(20, 6)
+  restockStatus        RestockStatus      @default(IDLE)
+  lastRestockAt        DateTime?
+  lastRestockTxHash    String?
+  lastRestockOrderId   String?
+  screenshotPath       String?
+  active               Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([restockStatus])
+}
+
+// Lean financial log powering the Analytics charts.
+// Outgoing rows are written by inventory.service on every restock payment.
+// Incoming rows are written manually or via XRPL account sync.
+model LedgerLog {
+  id          String          @id @default(cuid())
+  direction   LedgerDirection
+  amountRlusd Decimal         @db.Decimal(20, 6)
+  vendorName  String?
+  itemName    String?
+  txHash      String?
+  createdAt   DateTime        @default(now())
+
+  @@index([direction, createdAt])
+  @@index([createdAt])
+}
+
+model FinanceAdmin {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 // Append-only audit trail (also mirrored to stdout for CloudWatch).

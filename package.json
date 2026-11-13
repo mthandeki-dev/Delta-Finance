@@ -22,9 +22,12 @@
     "bcrypt": "6.0.0",
     "next": "^16.4.6",
     "next-auth": "4.24.15",
+    "nodemailer": "^7.0.13",
     "pg": "^8.13.0",
+    "playwright": "^1.65.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "recharts": "^3.10.1",
     "ripple-binary-codec": "2.11.0",
     "xrpl": "4.7.0",
     "xumm-sdk": "1.11.2"
@@ -32,6 +35,7 @@
   "devDependencies": {
     "@types/bcrypt": "6.0.0",
     "@types/node": "22.20.5",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.11.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

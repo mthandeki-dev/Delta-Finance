@@ -1,19 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DashboardData, WalletStatus } from '@/lib/types';
+import type { DashboardData, FinanceAdmin, InventoryItem, WalletStatus } from '@/lib/types';
 import { ActivityTable, ApprovalQueue } from './Activity';
 import { AgentConsole } from './AgentConsole';
+import { AnalyticsPanel } from './AnalyticsPanel';
 import { api, localEquivalent, money, shortAddress } from './api';
+import { FinanceAdminPanel } from './FinanceAdminPanel';
+import { InventoryPanel } from './InventoryPanel';
 import { Logo } from './Logo';
 import { MandatePanel, SecretCodePanel, VendorPanel, WalletPanel } from './MandatePanels';
 
-type Section = 'make-payments' | 'agent-setup' | 'payment-history';
+type Section = 'make-payments' | 'agent-setup' | 'payment-history' | 'inventory' | 'analytics';
 
-const NAV_ITEMS: { id: Section; label: string; group: string }[] = [
-  { id: 'make-payments', label: 'Make Payments', group: 'Make Payments' },
-  { id: 'agent-setup', label: 'Agent Setup', group: 'Agent Setup' },
-  { id: 'payment-history', label: 'Payment History', group: 'Payment History' },
+const NAV_ITEMS: { id: Section; label: string }[] = [
+  { id: 'make-payments', label: 'Make Payments' },
+  { id: 'agent-setup', label: 'Agent Setup' },
+  { id: 'payment-history', label: 'Payment History' },
+  { id: 'inventory', label: 'Inventory' },
+  { id: 'analytics', label: 'Analytics' },
 ];
 
 function HamburgerIcon() {
@@ -29,11 +34,14 @@ function HamburgerIcon() {
 export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [wallet, setWallet] = useState<WalletStatus>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [financeAdmins, setFinanceAdmins] = useState<FinanceAdmin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pausing, setPausing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>('make-payments');
+  const [analyticsRefreshKey, setAnalyticsRefreshKey] = useState(0);
   const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,20 +77,44 @@ export function Dashboard() {
     }
   }, []);
 
+  const reloadInventory = useCallback(async () => {
+    try {
+      setInventory(await api<InventoryItem[]>('/api/inventory'));
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
+  const reloadFinanceAdmins = useCallback(async () => {
+    try {
+      setFinanceAdmins(await api<FinanceAdmin[]>('/api/finance-admins'));
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
   useEffect(() => {
     reload();
     reloadWallet();
+    reloadInventory();
+    reloadFinanceAdmins();
     const a = setInterval(reload, 5000);
     const b = setInterval(reloadWallet, 20000);
+    const c = setInterval(reloadInventory, 15000);
     return () => {
       clearInterval(a);
       clearInterval(b);
+      clearInterval(c);
     };
-  }, [reload, reloadWallet]);
+  }, [reload, reloadWallet, reloadInventory, reloadFinanceAdmins]);
 
   const notify = useCallback((message: string) => {
     setToast(message);
     setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  const onStockReceived = useCallback(() => {
+    setAnalyticsRefreshKey((k) => k + 1);
   }, []);
 
   function navigate(section: Section) {
@@ -139,6 +171,7 @@ export function Dashboard() {
   }
 
   const activeSectionLabel = NAV_ITEMS.find((n) => n.id === activeSection)?.label ?? '';
+
 
   return (
     <div className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
@@ -342,6 +375,17 @@ export function Dashboard() {
 
         {/* ── Payment History ── */}
         {activeSection === 'payment-history' && <ActivityTable data={data} />}
+
+        {/* ── Inventory ── */}
+        {activeSection === 'inventory' && (
+          <div className="space-y-6">
+            <InventoryPanel items={inventory} isAdmin={isAdmin} onStockReceived={onStockReceived} />
+            {isAdmin && <FinanceAdminPanel initial={financeAdmins} />}
+          </div>
+        )}
+
+        {/* ── Analytics ── */}
+        {activeSection === 'analytics' && <AnalyticsPanel refreshKey={analyticsRefreshKey} />}
       </main>
 
       <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
