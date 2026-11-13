@@ -102,10 +102,21 @@ export function Dashboard() {
         <Logo />
         <div className="flex items-center gap-3 text-sm">
           <span className="badge border-df-yellow text-df-yellow">XRPL Testnet</span>
-          <span className="mono hidden text-neutral-300 sm:inline" title={data.user.xrplAddress}>
-            {shortAddress(data.user.xrplAddress)}
-          </span>
+          {data.user.xrplAddress ? (
+            <span className="mono hidden text-neutral-300 sm:inline" title={data.user.xrplAddress}>
+              {shortAddress(data.user.xrplAddress)}
+            </span>
+          ) : (
+            <span className="hidden text-neutral-300 sm:inline">
+              {data.user.fullName ?? data.user.username ?? data.user.email ?? 'User'}
+            </span>
+          )}
           <span className="badge border-df-line text-neutral-200">{isAdmin ? 'Administrator' : 'Read-only'}</span>
+          {isAdmin && (
+            <a href="/admin/users" className="btn-ghost">
+              Users
+            </a>
+          )}
           <button onClick={signOut} className="btn-ghost">
             Sign out
           </button>

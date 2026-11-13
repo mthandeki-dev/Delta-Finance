@@ -30,6 +30,7 @@ export const authOptions: NextAuthOptions = {
           where: { OR: [{ username: identifier }, { email: identifier }] },
         });
         if (!user?.passwordHash) return null;
+        if (!user.active) return null;
 
         // Always use bcrypt.compare for seeded and newly registered accounts.
         // Existing scrypt accounts are migrated to bcrypt on successful sign-in.

@@ -1,14 +1,11 @@
 'use client';
 
-import { signIn } from 'next-auth/react';
-
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 
 type SignIn = { uuid: string; qrPng: string; deeplink: string };
 type Poll = { state: 'pending' | 'signed' | 'rejected' | 'expired' };
 type AuthTab = 'xaman' | 'password';
-type PasswordMode = 'sign-in' | 'sign-up';
 
 export function LoginCard() {
   const [tab, setTab] = useState<AuthTab>('xaman');
@@ -26,7 +23,7 @@ export function LoginCard() {
           onClick={() => setTab('password')}
           className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${tab === 'password' ? 'bg-df-panel text-white' : 'text-neutral-400 hover:text-white'}`}
         >
-          Email / Password
+          Username / Password
         </button>
       </div>
 
@@ -110,127 +107,73 @@ function XamanPanel() {
 }
 
 function PasswordPanel() {
-  const [mode, setMode] = useState<PasswordMode>('sign-in');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [identifier, setIdentifier] = useState('');
-  const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [showPw, setShowPw] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (mode === 'sign-up' && password !== confirm) {
-      setError('Passwords do not match.');
-      return;
-    }
-
     setBusy(true);
     try {
-      if (mode === 'sign-in') {
-        const result = await signIn('credentials', { redirect: false, identifier, password });
-        if (!result || result.error) throw new Error('Email/username or password is incorrect.');
-      } else {
-        await api('/api/auth/register', { method: 'POST', body: { username, email, password } });
-      }
-      window.location.href = '/dashboard';
+      const { requirePasswordChange } = await api<{ ok: boolean; requirePasswordChange: boolean }>(
+        '/api/auth/login',
+        { method: 'POST', body: { identifier, password } },
+      );
+      window.location.href = requirePasswordChange ? '/change-password' : '/dashboard';
     } catch (e) {
-      setError((e as Error).message);
+      setError('Email/username or password is incorrect.');
+      void e;
     } finally {
       setBusy(false);
     }
   }
 
-  function switchMode(next: PasswordMode) {
-    setMode(next);
-    setError(null);
-  }
-
   return (
     <form onSubmit={submit} aria-live="polite">
-      <h2 className="text-xl font-semibold">{mode === 'sign-in' ? 'Sign in' : 'Create account'}</h2>
+      <h2 className="text-xl font-semibold">Sign in</h2>
+      <p className="hint mt-1">Use the credentials your administrator provided.</p>
 
       <div className="mt-5 flex flex-col gap-3">
-        {mode === 'sign-up' && (
-          <>
-            <div>
-              <label className="label" htmlFor="username">Username</label>
-              <input
-                id="username"
-                className="input"
-                type="text"
-                placeholder="e.g. janedoe"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="email">Email</label>
-              <input
-                id="email"
-                className="input"
-                type="email"
-                placeholder="you@example.com"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-          </>
-        )}
-
-        {mode === 'sign-in' && (
-          <div>
-            <label className="label" htmlFor="identifier">Email or username</label>
-            <input
-              id="identifier"
-              className="input"
-              type="text"
-              placeholder="you@example.com"
-              autoComplete="username email"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              required
-            />
-          </div>
-        )}
-
         <div>
-          <label className="label" htmlFor="password">Password</label>
+          <label className="label" htmlFor="identifier">Username or email</label>
           <input
-            id="password"
+            id="identifier"
             className="input"
-            type="password"
-            placeholder="Min. 8 characters"
-            autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            type="text"
+            placeholder="username or email"
+            autoComplete="username email"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             required
           />
         </div>
 
-        {mode === 'sign-up' && (
-          <div>
-            <label className="label" htmlFor="confirm">Confirm password</label>
+        <div>
+          <label className="label" htmlFor="password">Password</label>
+          <div className="relative">
             <input
-              id="confirm"
-              className="input"
-              type="password"
-              placeholder="Repeat your password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              id="password"
+              className="input pr-16"
+              type={showPw ? 'text' : 'password'}
+              placeholder="Your password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 hover:text-white"
+              onClick={() => setShowPw((v) => !v)}
+              aria-label={showPw ? 'Hide password' : 'Show password'}
+            >
+              {showPw ? 'Hide' : 'Show'}
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {error && (
@@ -240,16 +183,8 @@ function PasswordPanel() {
       )}
 
       <button type="submit" disabled={busy} className="btn-primary mt-5 w-full">
-        {busy ? 'Please wait…' : mode === 'sign-in' ? 'Sign in' : 'Create account'}
+        {busy ? 'Signing in…' : 'Sign in'}
       </button>
-
-      <p className="hint mt-4 text-center text-xs">
-        {mode === 'sign-in' ? (
-          <>No account?{' '}<button type="button" onClick={() => switchMode('sign-up')} className="text-df-yellow underline">Sign up</button></>
-        ) : (
-          <>Already have an account?{' '}<button type="button" onClick={() => switchMode('sign-in')} className="text-df-yellow underline">Sign in</button></>
-        )}
-      </p>
     </form>
   );
 }

@@ -24,7 +24,15 @@ export const GET = route(async () => {
   const now = Date.now();
 
   const data: DashboardData = {
-    user: { xrplAddress: user.xrplAddress, role: user.role },
+    user: {
+      id: user.id,
+      xrplAddress: user.xrplAddress,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      requirePasswordChange: user.requirePasswordChange,
+    },
     policy: {
       agentEnabled: policy.agentEnabled,
       dailyLimitRlusd: fromMicro(BigInt(policy.dailyLimitRlusd.mul(1_000_000).toFixed(0))),

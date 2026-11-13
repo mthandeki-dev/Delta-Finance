@@ -1,5 +1,19 @@
 // Shapes shared between the dashboard API and the client components.
 
+export type UserView = {
+  id: string;
+  fullName: string | null;
+  username: string | null;
+  email: string | null;
+  xrplAddress: string | null;
+  role: 'ADMIN' | 'VIEWER';
+  active: boolean;
+  requirePasswordChange: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string;
+};
+
 export type TxView = {
   id: string;
   createdAt: string;
@@ -29,7 +43,15 @@ export type SecretCodeView = {
 };
 
 export type DashboardData = {
-  user: { xrplAddress: string; role: 'ADMIN' | 'VIEWER' };
+  user: {
+    id: string;
+    xrplAddress: string | null;
+    username: string | null;
+    fullName: string | null;
+    email: string | null;
+    role: 'ADMIN' | 'VIEWER';
+    requirePasswordChange: boolean;
+  };
   policy: {
     agentEnabled: boolean;
     dailyLimitRlusd: string;

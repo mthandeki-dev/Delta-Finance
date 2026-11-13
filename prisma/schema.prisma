@@ -2,13 +2,11 @@
 // PostgreSQL (AWS RDS) via Prisma
 
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -43,17 +41,21 @@ enum BlockLayer {
 }
 
 model User {
-  id              String   @id @default(cuid())
-  xrplAddress     String?  @unique
-  email           String?  @unique
-  username        String?  @unique
-  passwordHash    String?
-  passwordSalt    String?
-  role            Role     @default(VIEWER)
+  id                    String   @id @default(cuid())
+  xrplAddress           String?  @unique
+  email                 String?  @unique
+  username              String?  @unique
+  fullName              String?
+  passwordHash          String?
+  passwordSalt          String?
+  role                  Role     @default(VIEWER)
+  active                Boolean  @default(true)
+  requirePasswordChange Boolean  @default(false)
   // Xaman user token: lets the backend push sign requests to the admin's phone
-  xamanUserToken  String?
-  createdAt       DateTime @default(now())
-  lastLoginAt     DateTime @default(now())
+  xamanUserToken        String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  lastLoginAt           DateTime @default(now())
 
   policiesUpdated TreasuryPolicy[]
   vendorsCreated  Vendor[]

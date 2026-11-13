@@ -4,7 +4,7 @@ const nextConfig = {
   // Keep standalone output for the existing AWS/Docker deployment only.
   ...(process.env.NETLIFY === 'true' ? {} : { output: 'standalone' }),
   poweredByHeader: false,
-  serverExternalPackages: ['xrpl', 'xumm-sdk', 'ripple-binary-codec', '@prisma/client', 'bcrypt'],
+  serverExternalPackages: ['xrpl', 'xumm-sdk', 'ripple-binary-codec', '@prisma/client', '@prisma/adapter-pg', 'pg', 'bcrypt'],
   images: {
     remotePatterns: [{ protocol: 'https', hostname: 'xumm.app' }],
   },

@@ -1,17 +1,26 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
+import { Pool } from 'pg'
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({ log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'] });
+function createPrismaClient() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  const adapter = new PrismaPg(pool)
+  return new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+  })
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 
-export const POLICY_ID = 'default';
-export const AGENT_WALLET_ID = 'agent';
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+export const POLICY_ID = 'default'
+export const AGENT_WALLET_ID = 'agent'
 
 /** The treasury mandate always exists; create the conservative default on first use. */
 export function ensurePolicy() {
-  return prisma.treasuryPolicy.upsert({ where: { id: POLICY_ID }, update: {}, create: { id: POLICY_ID } });
+  return prisma.treasuryPolicy.upsert({ where: { id: POLICY_ID }, update: {}, create: { id: POLICY_ID } })
 }

@@ -7,5 +7,6 @@ export const dynamic = 'force-dynamic';
 export default async function DashboardPage() {
   const user = await getSessionUser();
   if (!user) redirect('/');
+  if (user.requirePasswordChange) redirect('/change-password');
   return <Dashboard />;
 }

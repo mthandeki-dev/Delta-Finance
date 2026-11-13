@@ -69,7 +69,8 @@ export async function getSessionUser(): Promise<User | null> {
 
 export async function requireUser(): Promise<User> {
   const user = await getSessionUser();
-  if (!user) throw new AppError(401, 'UNAUTHENTICATED', 'Sign in with Xaman to continue.');
+  if (!user) throw new AppError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+  if (!user.active) throw new AppError(401, 'ACCOUNT_DISABLED', 'This account has been deactivated. Contact your administrator.');
   return user;
 }
 
