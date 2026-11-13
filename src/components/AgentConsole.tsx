@@ -1,8 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentResult, DashboardData } from '@/lib/types';
 import { api, LAYER_LABEL, money } from './api';
+
+// The Web Speech API is not fully typed in lib.dom.d.ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySpeechRecognition = any;
+
+function MicIcon({ recording }: { recording: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`h-4 w-4 ${recording ? 'text-df-yellow' : 'text-neutral-400'}`}
+      aria-hidden
+    >
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+      <line x1="8" y1="22" x2="16" y2="22" />
+    </svg>
+  );
+}
 
 // A syntactically valid Testnet address that is not on anyone's whitelist by default (from the XRPL docs).
 const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
@@ -20,6 +45,51 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AgentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [recording, setRecording] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [hasSpeech, setHasSpeech] = useState<boolean | null>(null);
+  const recognitionRef = useRef<AnySpeechRecognition>(null);
+
+  // Detect browser Speech API support once on mount
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    setHasSpeech(typeof window !== 'undefined' && (!!w.SpeechRecognition || !!w.webkitSpeechRecognition));
+  }, []);
+
+  function toggleRecording() {
+    if (recording) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    setMicError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.continuous = false;
+
+    rec.onstart = () => setRecording(true);
+    rec.onend = () => setRecording(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      setRecording(false);
+      if (e.error === 'not-allowed') setMicError('Microphone access was denied. Allow it in your browser settings.');
+      else if (e.error !== 'no-speech') setMicError(`Voice input error: ${e.error}`);
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      const transcript: string = e.results[0][0].transcript;
+      setPrompt((prev) => (prev.trimEnd() ? `${prev.trimEnd()} ${transcript}` : transcript));
+    };
+
+    recognitionRef.current = rec;
+    rec.start();
+  }
 
   const vendor = data.vendors[0];
   const perTx = Number(data.policy.perTxLimitRlusd);
@@ -71,15 +141,46 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
         <label htmlFor="prompt" className="sr-only">
           Instruction for the agent
         </label>
-        <textarea
-          id="prompt"
-          className="input min-h-[88px] resize-y"
-          maxLength={500}
-          placeholder={vendor ? `Pay ${vendor.label} 12.50 RLUSD for invoice 884` : 'Approve a vendor first, then: Pay <vendor> 12.50 RLUSD for invoice 884'}
-          value={prompt}
-          disabled={!isAdmin}
-          onChange={(e) => setPrompt(e.target.value)}
-        />
+        <div className="relative">
+          <textarea
+            id="prompt"
+            className="input min-h-[88px] resize-y pr-12"
+            maxLength={500}
+            placeholder={vendor ? `Pay ${vendor.label} 12.50 RLUSD for invoice 884` : 'Approve a vendor first, then: Pay <vendor> 12.50 RLUSD for invoice 884'}
+            value={prompt}
+            disabled={!isAdmin}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          {isAdmin && hasSpeech && (
+            <button
+              type="button"
+              onClick={toggleRecording}
+              title={recording ? 'Stop recording' : 'Dictate instruction'}
+              aria-label={recording ? 'Stop voice recording' : 'Start voice recording'}
+              className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors
+                ${recording
+                  ? 'border-df-yellow bg-df-yellow/10 hover:bg-df-yellow/20'
+                  : 'border-df-line bg-transparent hover:border-neutral-500'}`}
+            >
+              {recording
+                ? <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
+                : <MicIcon recording={false} />}
+            </button>
+          )}
+        </div>
+
+        {recording && (
+          <p className="mt-1.5 flex items-center gap-2 text-xs text-neutral-400" aria-live="polite">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-df-yellow" aria-hidden />
+            Listening… speak your instruction, then click the button to stop.
+          </p>
+        )}
+        {micError && (
+          <p role="alert" className="mt-1.5 text-xs text-neutral-400">
+            <span className="text-df-yellow">Mic error.</span> {micError}
+          </p>
+        )}
+
         <div className="mt-2 flex flex-wrap gap-2" aria-label="Example instructions">
           {examples.map((ex) => (
             <button key={ex.tag} type="button" className="badge border-df-line text-neutral-200 hover:border-df-yellow" disabled={!isAdmin} onClick={() => setPrompt(ex.text)}>
