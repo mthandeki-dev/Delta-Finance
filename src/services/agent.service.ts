@@ -202,7 +202,7 @@ export async function runAgent(input: { prompt: string; actor: string; privyToke
   const base = {
     actor,
     prompt,
-    intentJson: intent,
+    intentJson: JSON.stringify(intent),
     intentSource,
     amountRlusd: amount,
     merchantAddress: intent.merchant_address,

@@ -89,6 +89,13 @@ get xrplWss() {
     const code = optional('DISPLAY_FX_CODE', 'ZAR');
     return Number.isFinite(rate) && rate > 0 ? { code, rate } : null;
   },
+  // ── Post-quantum field encryption keys ────────────────────────────────
+  get pqPublicKey() { return required('PQ_PUBLIC_KEY'); },
+  get pqSecretKey() { return required('PQ_SECRET_KEY'); },
+  get pqKeyId(): string { return required('PQ_KEY_ID'); },
+  get pqSecretKeyPrevious(): string | null { return process.env.PQ_SECRET_KEY_PREVIOUS || null; },
+  get pqKeyIdPrevious(): string | null { return process.env.PQ_KEY_ID_PREVIOUS || null; },
+
   configured: {
     get xaman() {
       return Boolean(process.env.XAMAN_API_KEY && process.env.XAMAN_API_SECRET);

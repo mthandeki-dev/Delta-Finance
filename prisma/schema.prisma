@@ -146,7 +146,7 @@ model TransactionLog {
   updatedAt        DateTime    @updatedAt
   actor            String // "admin:<address>" or "agent-api"
   prompt           String
-  intentJson       Json?
+  intentJson       String?
   intentSource     String? // "llm" | "deterministic"
   amountRlusd      Decimal?    @db.Decimal(20, 6)
   merchantAddress  String?
@@ -248,7 +248,7 @@ model AuditLog {
   tx        TransactionLog? @relation(fields: [txId], references: [id])
   actor     String
   event     String
-  detail    Json?
+  detail    String?
 
   @@index([txId])
   @@index([createdAt])
