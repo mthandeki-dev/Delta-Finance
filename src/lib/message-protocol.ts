@@ -4,7 +4,7 @@
 //
 //   1. CAPTURE    raw STT output or typed text, in any supported language
 //   2. NORMALISE  instant client-side pass: keyword substitution + mishearing fixes + vendor name correction
-//   3. TRANSLATE  async server-side LLM pass → English (non-English only); falls back to keyword-map
+//   3. TRANSLATE  async server-side pass → English (non-English only); Vulavula → Google → LLM → keyword-map
 //   4. REVIEW     user reads and optionally edits the English text in the textarea
 //   5. DISPATCH   reviewed English text is POSTed to /api/agent for intent parsing and execution
 //
@@ -13,8 +13,10 @@
 
 export type TranslationMethod =
   | 'passthrough'   // source was already English — no change
-  | 'keyword-map'   // LLM unavailable; payment verbs replaced via PAYMENT_KEYWORD_MAP
-  | 'llm';          // full Anthropic translation (highest fidelity)
+  | 'keyword-map'   // cloud translation unavailable; payment verbs replaced via PAYMENT_KEYWORD_MAP
+  | 'vulavula'      // Lelapa AI Vulavula Translation API (African-language specialist)
+  | 'google'        // Google Cloud Translation API
+  | 'llm';          // full Anthropic translation
 
 export type PipelineStage = 'capture' | 'normalise' | 'translate' | 'review' | 'dispatch';
 

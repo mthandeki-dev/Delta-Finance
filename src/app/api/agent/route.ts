@@ -29,7 +29,7 @@ function rateLimit(key: string, max = 20, windowMs = 60_000) {
 
 /**
  * POST /api/agent
- * { "prompt": "...", "sourceLang": "zu-ZA", "redTeam": false }
+ * { "prompt": "...", "sourceLang": "zu-ZA" }
  *
  * sourceLang (optional, default "en-ZA"): BCP-47 code of the language the user spoke or typed.
  * When non-English, the prompt is translated to English here — before intent parsing — using
@@ -52,14 +52,9 @@ export const POST = route(async (req) => {
   const actor = user ? `${user.role.toLowerCase()}:${user.xrplAddress ?? user.email ?? user.id}` : 'agent-api';
   rateLimit(actor);
 
-  const body = await readJson<{ prompt?: unknown; sourceLang?: unknown; redTeam?: unknown }>(req);
+  const body = await readJson<{ prompt?: unknown; sourceLang?: unknown }>(req);
   const rawPrompt  = str(body.prompt, 'prompt', 500);
   const sourceLang = typeof body.sourceLang === 'string' ? body.sourceLang : 'en-ZA';
-  const redTeam    = body.redTeam === true;
-
-  if (redTeam && !(env.allowRedTeam && user?.role === 'ADMIN')) {
-    throw new AppError(403, 'REDTEAM_DISABLED', 'The red-team test is only available to admins when ALLOW_REDTEAM_DEMO is on.');
-  }
 
   // ── Translation gate ───────────────────────────────────────────────────────
   // Translate to English before the prompt reaches the intent parser.
@@ -69,7 +64,7 @@ export const POST = route(async (req) => {
 
   const authHeader = req.headers.get('authorization') ?? '';
   const privyToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const result = await runAgent({ prompt, actor, redTeam, privyToken, userId: user?.id ?? null });
+  const result = await runAgent({ prompt, actor, privyToken, userId: user?.id ?? null });
   const status = result.status === 'EXECUTED' ? 200 : result.status === 'PENDING_HITL' ? 202 : result.status === 'BLOCKED' ? 403 : 502;
   return ok(result, status);
 });

@@ -8,7 +8,9 @@ import {
   normaliseForEnglishParser, applyMishearingMap, correctNames, MISHEARING_MAP,
 } from '@/lib/speech-langs';
 import {
-  isSpeechSupported, createBrowserSpeechProvider, type SpeechProvider,
+  isSpeechSupported, isCloudSpeechSupported,
+  createBrowserSpeechProvider, createCloudSpeechProvider,
+  type SpeechProvider,
 } from '@/lib/speech-provider';
 import type { TranslateRequest, TranslateResponse, TranslationMethod } from '@/lib/message-protocol';
 import { api, LAYER_LABEL, money } from './api';
@@ -242,8 +244,7 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
 
 export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; isAdmin: boolean; onDone: () => Promise<void> | void }) {
   const [prompt, setPrompt] = useState('');
-  const [redTeam, setRedTeam] = useState(false);
-  const [busy, setBusy] = useState(false);
+const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AgentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -287,8 +288,10 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   // ── Boot effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    setHasSpeech(isSpeechSupported());
-  }, []);
+    const hasCloud   = (data.config.vulavulaStt || data.config.googleStt) && isCloudSpeechSupported();
+    const hasBrowser = isSpeechSupported();
+    setHasSpeech(hasCloud || hasBrowser);
+  }, [data.config.vulavulaStt, data.config.googleStt]);
 
   // Restore saved language from localStorage
   useEffect(() => {
@@ -326,8 +329,16 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   // ── Core recognition logic ────────────────────────────────────────────────────
   // Extracted so onEnd can call it recursively on early browser stop.
 
+  // Languages the Vulavula STT model supports — isiXhosa is translation-only.
+  const VULAVULA_STT_LANGS = new Set(['en-ZA', 'zu-ZA', 'af-ZA', 'nso-ZA']);
+
   function startRecognition() {
-    const provider = createBrowserSpeechProvider();
+    const lang     = selectedLangRef.current;
+    // Use cloud STT when configured, unless the language is xh-ZA (Vulavula STT
+    // doesn't support it — we fall back to browser and Vulavula handles translation).
+    const useCloud = (data.config.vulavulaStt || data.config.googleStt) &&
+      (!data.config.vulavulaStt || VULAVULA_STT_LANGS.has(lang));
+    const provider = useCloud ? createCloudSpeechProvider() : createBrowserSpeechProvider();
     providerRef.current = provider;
 
     provider.start(selectedLangRef.current, {
@@ -430,6 +441,12 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
         } else if (code === 'not-supported') {
           stopCleanly();
           setMicError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+        } else if (code === 'transcription-failed') {
+          stopCleanly();
+          setMicError('Could not transcribe audio. Check your connection and try again.');
+        } else if (code === 'audio-capture') {
+          stopCleanly();
+          setMicError('Could not access the microphone. Check your browser and system permissions.');
         } else if (code === 'no-speech' || code === 'aborted') {
           // no-speech: browser will fire onEnd which handles auto-restart
           // aborted: we called abort() on unmount — onEnd sees userStopped=true
@@ -506,7 +523,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     try {
       const r = await api<AgentResult & { error?: { message: string } }>('/api/agent', {
         method: 'POST',
-        body: { prompt, sourceLang: dispatchLang, redTeam },
+        body: { prompt, sourceLang: dispatchLang },
         okStatuses: [403, 502],
       });
       if (r.error) throw new Error(r.error.message);
@@ -522,6 +539,9 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
   const head          = result ? HEADLINE[result.status] : null;
   const showTelemetry = lastSubmitWasVoice && (busy || result !== null);
+  // True when the current lang uses cloud STT (Vulavula doesn't support xh-ZA)
+  const usingCloudStt = (data.config.vulavulaStt || data.config.googleStt) &&
+    (!data.config.vulavulaStt || VULAVULA_STT_LANGS.has(selectedLang));
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -582,7 +602,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
                 </p>
                 <p className="flex items-center gap-2 text-sm text-df-blue">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-df-blue animate-pulse" aria-hidden />
-                  Translating to English via language model...
+                  Translating to English...
                 </p>
               </div>
             </div>
@@ -591,12 +611,14 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
             <div className={`overflow-hidden transition-all duration-300 ${recState === 'listening' ? 'max-h-28 opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="rounded-xl border border-df-cyan/20 bg-df-cyan/[0.03] px-4 py-3">
                 <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
-                  Live transcript
+                  {usingCloudStt ? 'Recording audio' : 'Live transcript'}
                 </p>
                 <p className="text-sm leading-relaxed text-neutral-300">
-                  {interimText
-                    ? <>{interimText}<span className="sim-cursor text-df-cyan" aria-hidden /></>
-                    : <span className="animate-pulse text-df-mute">Waiting for speech...</span>
+                  {usingCloudStt
+                    ? <span className="animate-pulse text-df-mute">Listening... tap the button to stop.</span>
+                    : interimText
+                      ? <>{interimText}<span className="sim-cursor text-df-cyan" aria-hidden /></>
+                      : <span className="animate-pulse text-df-mute">Waiting for speech...</span>
                   }
                 </p>
               </div>
@@ -617,15 +639,19 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
             {translationInfo && recState === 'idle' && !busy && (
               <div className="rounded-xl border border-df-blue/20 bg-df-blue/[0.04] px-3 py-2.5">
                 <div className="flex items-center gap-2">
-                  {translationInfo.method === 'llm' ? (
-                    <span className="badge-verified shrink-0 text-[10px] normal-case">AI translated</span>
+                  {translationInfo.method === 'vulavula' || translationInfo.method === 'google' || translationInfo.method === 'llm' ? (
+                    <span className="badge-verified shrink-0 text-[10px] normal-case">translated</span>
                   ) : translationInfo.method === 'keyword-map' ? (
                     <span className="badge-pending shrink-0 text-[10px] normal-case">keywords mapped</span>
                   ) : (
                     <span className="badge-pending shrink-0 text-[10px] normal-case">normalised</span>
                   )}
                   <span className="text-xs text-neutral-400">
-                    {translationInfo.method === 'llm'
+                    {translationInfo.method === 'vulavula'
+                      ? `Translated from ${translationInfo.sourceLangLabel} by Vulavula.`
+                      : translationInfo.method === 'google'
+                      ? `Translated from ${translationInfo.sourceLangLabel}.`
+                      : translationInfo.method === 'llm'
                       ? `Translated from ${translationInfo.sourceLangLabel} by the language model.`
                       : translationInfo.method === 'keyword-map'
                       ? `Payment keywords translated from ${translationInfo.sourceLangLabel}. Review before sending.`
@@ -634,7 +660,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
                 </div>
                 {translationInfo.method === 'keyword-map' && translationInfo.sourceLangLabel !== 'English' && (
                   <p className="mt-1.5 text-[10px] text-neutral-600">
-                    Language model not available — only payment verbs were translated. Check the full text carefully.
+                    Translation service not configured — only payment verbs were translated. Check the full text carefully.
                   </p>
                 )}
               </div>
@@ -697,25 +723,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           ))}
         </div>
 
-        {/* ── Red-team toggle (admin only) ───────────────────────────────── */}
-        {data.config.redTeam && isAdmin && (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.08] p-3 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 accent-[#FFD60A]"
-              checked={redTeam}
-              onChange={(e) => setRedTeam(e.target.checked)}
-            />
-            <span>
-              <span className="font-semibold">Stress test: skip Delta Finance own checks</span>
-              <span className="hint block">
-                Sends a forbidden payment straight to the agent wallet to show that Privy refuses to sign it on its own. Nothing is ever submitted from this mode.
-              </span>
-            </span>
-          </label>
-        )}
-
-        {/* ── Send button ────────────────────────────────────────────────── */}
+{/* ── Send button ────────────────────────────────────────────────── */}
         <button className="btn-primary w-full py-3 text-base" disabled={busy || !prompt.trim()}>
           {busy ? 'Agent is working...' : 'Send to agent'}
         </button>

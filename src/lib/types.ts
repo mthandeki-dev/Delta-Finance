@@ -70,7 +70,8 @@ export type DashboardData = {
     privy: boolean;
     xaman: boolean;
     llm: boolean;
-    redTeam: boolean;
+    vulavulaStt: boolean;
+    googleStt: boolean;
     displayFx: { code: string; rate: number } | null;
     explorerTx: string;
   };

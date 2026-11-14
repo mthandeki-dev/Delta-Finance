@@ -177,7 +177,7 @@ const outcome = (tx: TransactionLog, intent: Intent | null): AgentOutcome => ({
   intent,
 });
 
-export async function runAgent(input: { prompt: string; actor: string; redTeam?: boolean; privyToken?: string | null; userId?: string | null }): Promise<AgentOutcome> {
+export async function runAgent(input: { prompt: string; actor: string; privyToken?: string | null; userId?: string | null }): Promise<AgentOutcome> {
   const prompt = input.prompt.trim();
   const { actor } = input;
   const vendors = await prisma.vendor.findMany({ where: { active: true } });
@@ -230,16 +230,6 @@ export async function runAgent(input: { prompt: string; actor: string; redTeam?:
     // Fail closed: if the Privy mirror of the mandate is stale, nothing runs without a human.
     if (decision.route === 'AUTONOMOUS' && policy.privySyncError) {
       decision = { route: 'HITL', reasons: ['The wallet policy at Privy is out of sync with the dashboard. Human approval required until it is re-synced.'] };
-    }
-
-    // Red-team demo: skip our own router and let the infrastructure prove it holds on its own.
-    if (input.redTeam) {
-      const forbiddenAtPrivy =
-        (decision.route === 'BLOCKED' && decision.code === 'VENDOR_NOT_WHITELISTED') || toMicro(amount) > perTxLimitMicro;
-      if (!forbiddenAtPrivy) {
-        throw new AppError(400, 'REDTEAM_NOT_APPLICABLE', 'The red-team test needs a payment the wallet policy forbids: a non-approved address, or an amount over the per-payment limit.');
-      }
-      return redTeamAttempt(base, intent, amount, wallet);
     }
 
     if (decision.route === 'BLOCKED') {
@@ -374,40 +364,6 @@ async function executeAutonomous(
     await audit('AGENT_PAYMENT_FAILED', { actor, txId, detail: { reason } });
     return finish({ status: 'FAILED', reason });
   }
-}
-
-/**
- * Sends a forbidden payment straight to the signer, skipping the app router and the gateway.
- * Expected result: Privy refuses to sign. Nothing is ever submitted from this path, whatever happens.
- */
-async function redTeamAttempt(
-  base: Record<string, unknown>,
-  intent: Intent,
-  amount: string,
-  wallet: AgentWallet | null,
-): Promise<AgentOutcome> {
-  if (!wallet) throw new AppError(409, 'AGENT_WALLET_MISSING', 'Set up the agent wallet before running the red-team test.');
-  const actor = String(base.actor);
-  const prefix = 'Red-team test (app router bypassed). ';
-  let data: { status: 'BLOCKED' | 'FAILED'; blockedBy?: 'PRIVY_POLICY'; reason: string };
-  try {
-    const payment = await buildRlusdPayment({ from: wallet.address, to: intent.merchant_address, amount });
-    await signXrplTransaction(wallet, payment); // signed blob is discarded on purpose
-    data = {
-      status: 'FAILED',
-      reason: `${prefix}CRITICAL: Privy signed a payment the mandate forbids. The wallet policy is missing or stale — re-sync it. The signed transaction was discarded and nothing was submitted.`,
-    };
-  } catch (e) {
-    if (!(e instanceof PrivyPolicyDenied)) throw e;
-    data = { status: 'BLOCKED', blockedBy: 'PRIVY_POLICY', reason: `${prefix}Privy's policy engine refused to sign: ${e.message}` };
-  }
-  const tx = await prisma.transactionLog.create({ data: { ...base, route: 'BLOCKED', ...data } as never });
-  await audit(data.status === 'BLOCKED' ? 'AGENT_BLOCKED' : 'REDTEAM_POLICY_GAP', {
-    actor,
-    txId: tx.id,
-    detail: { layer: 'PRIVY_POLICY', redTeam: true, reason: data.reason, intent },
-  });
-  return outcome(tx, intent);
 }
 
 export async function agentWalletStatus() {

@@ -59,10 +59,13 @@ export const env = {
   get llmModel() {
     return optional('LLM_MODEL', 'claude-haiku-5-5');
   },
-  get allowRedTeam() {
-    return optional('ALLOW_REDTEAM_DEMO') === 'true';
+  get googleCloudKey() {
+    return optional('GOOGLE_CLOUD_API_KEY');
   },
-  get xrplWss() {
+  get vulavulaKey() {
+    return optional('VULAVULA_API_KEY');
+  },
+get xrplWss() {
     return optional('XRPL_WSS', 'wss://s.altnet.rippletest.net:51233');
   },
   get faucetUrl() {
@@ -98,6 +101,12 @@ export const env = {
     },
     get llm() {
       return Boolean(process.env.ANTHROPIC_API_KEY);
+    },
+    get googleCloud() {
+      return Boolean(process.env.GOOGLE_CLOUD_API_KEY);
+    },
+    get vulavula() {
+      return Boolean(process.env.VULAVULA_API_KEY);
     },
   },
 };
