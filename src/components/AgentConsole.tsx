@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { AgentResult, DashboardData } from '@/lib/types';
-import { getFillerParts, hasFillers, matchVendors, stripFiller, type TextPart, type VendorMatch } from '@/lib/intent-filter';
+import { getFillerParts, matchVendors, stripFiller, type TextPart, type VendorMatch } from '@/lib/intent-filter';
 import { api, LAYER_LABEL, money } from './api';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySpeechRecognition = any;
 
+const SILENCE_MS    = 5000; // ms of silence before auto-stop
 const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
 
 const HEADLINE: Record<string, { title: string; tone: string }> = {
@@ -17,19 +18,9 @@ const HEADLINE: Record<string, { title: string; tone: string }> = {
   FAILED:       { title: 'Could not complete', tone: 'border-red-400/20 bg-red-400/[0.04]' },
 };
 
-function MicIcon({ size = 32 }: { size?: number }) {
+function MicIcon() {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ width: size, height: size }}
-      aria-hidden
-    >
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden>
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 10a7 7 0 0 0 14 0" />
       <line x1="12" y1="19" x2="12" y2="22" />
@@ -40,156 +31,67 @@ function MicIcon({ size = 32 }: { size?: number }) {
 
 function StopIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7" aria-hidden>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden>
       <rect x="5" y="5" width="14" height="14" rx="2" />
     </svg>
   );
 }
 
-// ─── Voice Orb ───────────────────────────────────────────────────────────────
+// ─── Mic Button ───────────────────────────────────────────────────────────────
 
-type OrbState = 'idle' | 'listening' | 'filtering' | 'thinking' | 'done';
+type RecState = 'idle' | 'listening' | 'finalising';
 
-function VoiceOrb({
-  recording, busy, result, filtering, speaking, onClick, disabled,
-  waveCanvasRef, orbSphereRef,
-}: {
-  recording: boolean;
-  busy: boolean;
-  result: AgentResult | null;
-  filtering?: boolean;
-  speaking?: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-  waveCanvasRef: React.RefObject<HTMLCanvasElement | null>;
-  orbSphereRef: React.RefObject<HTMLSpanElement | null>;
-}) {
-  const state: OrbState =
-    busy      ? 'thinking'  :
-    recording ? 'listening' :
-    filtering ? 'filtering' :
-    result    ? 'done'      : 'idle';
-
-  const sphereGrad: Record<OrbState, string> = {
-    idle:      'radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.15) 0%, rgba(0,242,254,0.14)  30%, rgba(79,172,254,0.20)  60%, rgba(0,0,0,0.65) 100%)',
-    listening: 'radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.22) 0%, rgba(0,242,254,0.42)  30%, rgba(79,172,254,0.32)  60%, rgba(0,0,0,0.5)  100%)',
-    filtering: 'radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.20) 0%, rgba(255,214,10,0.38) 30%, rgba(230,190,0,0.26)   60%, rgba(0,0,0,0.58) 100%)',
-    thinking:  'radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.18) 0%, rgba(79,172,254,0.38) 30%, rgba(0,242,254,0.26)   60%, rgba(0,0,0,0.55) 100%)',
-    done:      'radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.20) 0%, rgba(255,214,10,0.28) 30%, rgba(255,214,10,0.16)   60%, rgba(0,0,0,0.6)  100%)',
-  };
-
-  const baseGlow: Record<OrbState, string> = {
-    idle:      'rgba(0,242,254,0.12)',
-    listening: 'rgba(0,242,254,0.42)',
-    filtering: 'rgba(255,214,10,0.38)',
-    thinking:  'rgba(79,172,254,0.36)',
-    done:      'rgba(255,214,10,0.26)',
-  };
-  // React-driven ambient halo — rAF overrides sphere glow independently
-  const glowColor = speaking && recording ? 'rgba(0,242,254,0.65)' : baseGlow[state];
-
-  const statusText: Record<OrbState, string> = {
-    idle:      'Tap to speak',
-    listening: speaking ? 'Speaking' : 'Listening',
-    filtering: 'Filtering',
-    thinking:  'Investigating',
-    done:      'Complete',
-  };
-
-  const statusColor: Record<OrbState, string> = {
-    idle:      'text-df-mute',
-    listening: speaking ? 'text-df-cyan' : 'text-df-mute',
-    filtering: 'text-df-yellow',
-    thinking:  'text-df-blue',
-    done:      'text-df-yellow',
-  };
-
-  const spinColor =
-    state === 'filtering'
-      ? 'conic-gradient(from 0deg, transparent 55%, rgba(255,214,10,0.65) 88%, transparent 100%)'
-      : 'conic-gradient(from 0deg, transparent 55%, rgba(79,172,254,0.65) 88%, transparent 100%)';
-
-  const doneRingColor = result?.status === 'EXECUTED' ? 'rgba(255,214,10,0.55)' : 'rgba(255,255,255,0.28)';
-  const ringDur    = speaking ? '0.95s' : '1.9s';
-  const ringDelay2 = speaking ? '0.27s' : '0.55s';
-  const ringDelay3 = speaking ? '0.54s' : '1.1s';
+function MicButton({ recState, busy, onClick }: { recState: RecState; busy: boolean; onClick: () => void }) {
+  const label =
+    recState === 'finalising' ? 'Finalising...' :
+    recState === 'listening'  ? 'Listening... tap to stop early' :
+    'Tap to speak';
 
   return (
-    <div className="flex flex-col items-center gap-5 py-8">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={recording ? 'Stop recording' : 'Start voice recording'}
-        className="relative flex h-36 w-36 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-df-cyan/60 focus-visible:ring-offset-4 focus-visible:ring-offset-black"
-      >
-        {/* Ambient halo — React-driven */}
-        <span
-          className="pointer-events-none absolute inset-[-20px] rounded-full transition-all duration-500"
-          style={{ background: `radial-gradient(circle, ${glowColor} 0%, transparent 70%)` }}
-          aria-hidden
-        />
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy || recState === 'finalising'}
+      aria-label={recState !== 'idle' ? 'Stop recording' : 'Start voice recording'}
+      className={`relative flex w-full items-center justify-center gap-3 rounded-xl border-2 py-4 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-df-cyan/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+        recState === 'finalising'
+          ? 'border-df-yellow/50 bg-df-yellow/[0.05] text-df-yellow'
+          : recState === 'listening'
+          ? 'border-red-400/60 bg-red-400/[0.06] text-red-400'
+          : 'border-dashed border-white/20 bg-white/[0.02] text-neutral-400 hover:border-df-cyan/40 hover:bg-df-cyan/[0.03] hover:text-df-cyan'
+      }`}
+    >
+      {/* Pulse ring while actively listening */}
+      {recState === 'listening' && (
+        <span className="pointer-events-none absolute inset-0 rounded-xl border-2 border-red-400/25 animate-ping" aria-hidden />
+      )}
 
-        {/* Ripple rings — speed reacts to speaking state */}
-        {recording && (
-          <>
-            <span className="orb-ring-1 pointer-events-none absolute h-44 w-44 rounded-full border border-df-cyan/[0.28]" style={{ animationDuration: ringDur }} aria-hidden />
-            <span className="orb-ring-2 pointer-events-none absolute h-56 w-56 rounded-full border border-df-cyan/[0.14]" style={{ animationDuration: ringDur, animationDelay: ringDelay2 }} aria-hidden />
-            <span className="orb-ring-3 pointer-events-none absolute h-72 w-72 rounded-full border border-df-cyan/[0.07]"  style={{ animationDuration: ringDur, animationDelay: ringDelay3 }} aria-hidden />
-          </>
-        )}
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+        recState === 'finalising' ? 'bg-df-yellow/15' :
+        recState === 'listening'  ? 'bg-red-400/20'   : 'bg-white/[0.06]'
+      }`}>
+        {recState !== 'idle' ? <StopIcon /> : <MicIcon />}
+      </span>
 
-        {/* Filtering / Thinking: rotating arc */}
-        {(busy || state === 'filtering') && (
-          <span className="orb-spin-arc pointer-events-none absolute h-40 w-40 rounded-full" style={{ background: spinColor }} aria-hidden />
-        )}
+      <span className="text-sm font-semibold">{label}</span>
 
-        {/* Done: lock ring */}
-        {!busy && !recording && !filtering && result && (
-          <span className="orb-lock-ring pointer-events-none absolute h-40 w-40 rounded-full border-2" style={{ borderColor: doneRingColor }} aria-hidden />
-        )}
-
-        {/* ── Audio-reactive waveform canvas ──
-            200×200 px, centered over the 144×144 button.
-            Written to directly by the rAF loop — zero React re-renders. */}
-        <canvas
-          ref={waveCanvasRef}
-          className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-300 ${recording ? 'opacity-100' : 'opacity-0'}`}
-          style={{ width: 200, height: 200 }}
-          aria-hidden
-        />
-
-        {/* Sphere — transform + boxShadow driven by rAF while recording */}
-        <span
-          ref={orbSphereRef}
-          className={`relative z-10 flex h-28 w-28 items-center justify-center rounded-full transition-colors duration-500 ${
-            state === 'idle'      ? 'orb-breathe'       :
-            state === 'filtering' ? 'orb-filter-glitch' : ''
-          }`}
-          style={{
-            background:  sphereGrad[state],
-            boxShadow: `0 0 52px ${glowColor}, inset 0 1px 2px rgba(255,255,255,0.12)`,
-          }}
-        >
-          <span
-            className="pointer-events-none absolute inset-0 rounded-full opacity-40"
-            style={{ background: 'radial-gradient(ellipse at 28% 22%, rgba(255,255,255,0.28) 0%, transparent 52%)' }}
-            aria-hidden
-          />
-          <span className="relative z-10">
-            {recording ? <StopIcon /> : <MicIcon size={30} />}
-          </span>
+      {recState === 'listening' && (
+        <span className="ml-auto mr-1 flex items-center gap-1.5 text-xs text-red-400/80">
+          <span className="h-1.5 w-1.5 rounded-full bg-red-400 animate-pulse" aria-hidden />
+          live
         </span>
-      </button>
-
-      <p className={`text-xs font-semibold tracking-widest uppercase transition-colors duration-200 ${statusColor[state]}`}>
-        {statusText[state]}
-      </p>
-    </div>
+      )}
+      {recState === 'finalising' && (
+        <span className="ml-auto mr-1 flex items-center gap-1.5 text-xs text-df-yellow/80">
+          <span className="h-1.5 w-1.5 rounded-full bg-df-yellow animate-pulse" aria-hidden />
+          processing
+        </span>
+      )}
+    </button>
   );
 }
 
-// ─── Live Telemetry Strip ─────────────────────────────────────────────────────
+// ─── Telemetry Strip ──────────────────────────────────────────────────────────
 
 interface TelemetryProps {
   fillerParts: TextPart[];
@@ -212,10 +114,10 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
   const fillerCount = fillerParts.filter((p) => p.isFiller).length;
 
   const policyLabel =
-    autoExec && !isPayroll   ? 'under limit: auto-executing'       :
-    isPayroll                ? 'payroll: human approval required'   :
+    autoExec && !isPayroll   ? 'under limit: auto-executing'        :
+    isPayroll                ? 'payroll: human approval required'    :
     needsHITL                ? 'over limit: human approval required' :
-    isBlocked                ? 'blocked by policy'                  : 'policy result';
+    isBlocked                ? 'blocked by policy'                   : 'policy result';
 
   const policyBadge = autoExec && !isPayroll ? 'badge-policy' : isBlocked ? 'badge-blocked' : 'badge-noise';
 
@@ -235,7 +137,6 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
         )}
       </div>
 
-      {/* 01: Voice → Intent */}
       <div className="telem-step space-y-2 pb-3">
         <p className="text-[10px] uppercase tracking-[0.12em] text-neutral-600">01 · Voice → Intent</p>
         <div className="space-y-1">
@@ -264,7 +165,6 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
         </div>
       </div>
 
-      {/* 02: Policy Check */}
       {!busy && result && amount !== null && (
         <div className="telem-step-2 space-y-2 border-t border-white/[0.06] pt-3 pb-3">
           <p className="text-[10px] uppercase tracking-[0.12em] text-neutral-600">02 · Policy Check</p>
@@ -289,7 +189,6 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
         </div>
       )}
 
-      {/* 03: XRPL Settlement */}
       {!busy && result?.txHash && (
         <div className="telem-step-3 space-y-2 border-t border-white/[0.06] pt-3">
           <p className="text-[10px] uppercase tracking-[0.12em] text-neutral-600">03 · XRPL Settlement</p>
@@ -307,7 +206,6 @@ function TelemetryStrip({ fillerParts, cleanedPrompt, result, busy, perTxLimit, 
         </div>
       )}
 
-      {/* Loading steps */}
       {busy && (
         <div className="border-t border-white/[0.06] pt-3 space-y-1.5 text-[11px]">
           <div className="flex items-center gap-2 text-neutral-500">
@@ -333,33 +231,30 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const [result, setResult] = useState<AgentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [recording, setRecording] = useState(false);
-  const [micError, setMicError] = useState<string | null>(null);
-  const [hasSpeech, setHasSpeech] = useState<boolean | null>(null);
-  const recognitionRef = useRef<AnySpeechRecognition>(null);
+  const [recState, setRecState]       = useState<RecState>('idle');
+  const [micError, setMicError]       = useState<string | null>(null);
+  const [hasSpeech, setHasSpeech]     = useState<boolean | null>(null);
+  const [interimText, setInterimText] = useState('');
 
-  // Live STT state
-  const [interimTranscript, setInterimTranscript] = useState('');
-  const [fillerParts, setFillerParts] = useState<TextPart[]>([]);
+  // Voice telemetry
+  const [fillerParts, setFillerParts]           = useState<TextPart[]>([]);
   const [cleanedTranscript, setCleanedTranscript] = useState('');
-  const [filtering, setFiltering] = useState(false);
-  const [vendorMatch, setVendorMatch] = useState<VendorMatch | null>(null);
+  const [vendorMatch, setVendorMatch]           = useState<VendorMatch | null>(null);
 
-  // Session telemetry
-  const [sessionExecCount, setSessionExecCount] = useState(0);
+  // Session counters
+  const [sessionExecCount, setSessionExecCount]   = useState(0);
   const [lastSubmitWasVoice, setLastSubmitWasVoice] = useState(false);
 
-  // ── Web Audio API refs (zero React re-renders in hot path) ──────────────────
-  const audioCtxRef    = useRef<AudioContext | null>(null);
-  const analyserRef    = useRef<AnalyserNode | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const animFrameRef   = useRef<number>(0);
-  // DOM element refs — written to directly from rAF loop
-  const waveCanvasRef  = useRef<HTMLCanvasElement | null>(null);
-  const orbSphereRef   = useRef<HTMLSpanElement | null>(null);
-  const volumeBarRef   = useRef<HTMLDivElement | null>(null);
-
-  const speaking = recording && interimTranscript.length > 0;
+  // ── Recognition refs ─────────────────────────────────────────────────────────
+  const recognitionRef  = useRef<AnySpeechRecognition>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // userStoppedRef: true when WE triggered the stop (5s timer or manual tap).
+  // If onend fires while this is false, the browser ended the session early → auto-restart.
+  const userStoppedRef  = useRef(false);
+  // isListeningRef: guards against stale-closure re-starts after component unmount.
+  const isListeningRef  = useRef(false);
+  // accumulatedRef: confirmed final text collected across all auto-restarts in this session.
+  const accumulatedRef  = useRef('');
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,249 +262,146 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     setHasSpeech(typeof window !== 'undefined' && (!!w.SpeechRecognition || !!w.webkitSpeechRecognition));
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isListeningRef.current = false;
+      userStoppedRef.current = true; // prevent auto-restart on unmount
       recognitionRef.current?.abort();
-      cancelAnimationFrame(animFrameRef.current);
-      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-      audioCtxRef.current?.close().catch(() => null);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
   }, []);
 
-  // ── Tear down Web Audio resources ──────────────────────────────────────────
-  function stopAudio() {
-    cancelAnimationFrame(animFrameRef.current);
-    animFrameRef.current = 0;
-
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    mediaStreamRef.current = null;
-
-    audioCtxRef.current?.close().catch(() => null);
-    audioCtxRef.current = null;
-    analyserRef.current = null;
-
-    // Clear canvas
-    const canvas = waveCanvasRef.current;
-    if (canvas) {
-      const ctx2d = canvas.getContext('2d');
-      if (ctx2d) ctx2d.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    // Reset sphere to CSS-driven state
-    if (orbSphereRef.current) {
-      orbSphereRef.current.style.transform = '';
-      orbSphereRef.current.style.boxShadow = '';
-    }
-
-    // Reset volume bar
-    if (volumeBarRef.current) {
-      volumeBarRef.current.style.width = '0%';
-    }
-  }
-
-  // ── Start/stop recording ───────────────────────────────────────────────────
-  async function toggleRecording() {
-    if (recording) {
-      recognitionRef.current?.stop();
-      return;
-    }
-
-    setMicError(null);
-    setInterimTranscript('');
-
-    // ── 1. Web Audio API: mic → AnalyserNode → rAF canvas loop ──────────────
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      mediaStreamRef.current = stream;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AudioCtxCtor: typeof AudioContext = window.AudioContext ?? (window as any).webkitAudioContext;
-      const audioCtx = new AudioCtxCtor();
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 128;              // 64 frequency bins
-      analyser.smoothingTimeConstant = 0.8;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
-      audioCtxRef.current = audioCtx;
-      analyserRef.current = analyser;
-
-      // Set canvas pixel buffer size
-      const canvas = waveCanvasRef.current;
-      if (canvas) {
-        canvas.width  = 200;
-        canvas.height = 200;
-      }
-
-      // Pre-allocate frequency buffer outside the loop
-      const freqData = new Uint8Array(analyser.frequencyBinCount);
-      const N       = 48;   // radial bars
-      const CX      = 100;
-      const CY      = 100;
-      const INNER_R = 61;   // just past the sphere edge (r=56)
-      const MAX_BAR = 32;
-
-      function drawFrame() {
-        animFrameRef.current = requestAnimationFrame(drawFrame);
-
-        const an = analyserRef.current;
-        const cv = waveCanvasRef.current;
-        if (!an || !cv) return;
-
-        an.getByteFrequencyData(freqData);
-
-        // Compute average normalised volume (0–1)
-        let sum = 0;
-        for (let j = 0; j < freqData.length; j++) sum += freqData[j];
-        const vol = sum / (freqData.length * 255);
-
-        // ── Direct DOM: sphere scale + glow ─────────────────────────────────
-        const sphere = orbSphereRef.current;
-        if (sphere) {
-          const scale    = (1 + vol * 0.14).toFixed(3);
-          const glowBlur = Math.round(52 + vol * 36);
-          const glowA    = (0.28 + vol * 0.42).toFixed(2);
-          sphere.style.transform  = `scale(${scale})`;
-          sphere.style.boxShadow  = `0 0 ${glowBlur}px rgba(0,242,254,${glowA}), inset 0 1px 2px rgba(255,255,255,0.12)`;
-        }
-
-        // ── Direct DOM: volume bar ───────────────────────────────────────────
-        const vbar = volumeBarRef.current;
-        if (vbar) {
-          vbar.style.width           = `${(vol * 100).toFixed(1)}%`;
-          vbar.style.backgroundColor = vol > 0.65 ? '#fbbf24' : '#00F2FE';
-        }
-
-        // ── Canvas: radial frequency bars ────────────────────────────────────
-        const ctx = cv.getContext('2d');
-        if (!ctx) return;
-        ctx.clearRect(0, 0, 200, 200);
-
-        const bins = freqData.length;
-
-        // Pass 1 — glow halos
-        ctx.lineWidth = 4;
-        ctx.lineCap   = 'round';
-        for (let i = 0; i < N; i++) {
-          const amp = freqData[Math.floor((i / N) * bins)] / 255;
-          if (amp < 0.04) continue;
-          const angle  = (i / N) * Math.PI * 2 - Math.PI / 2;
-          const barLen = 3 + amp * MAX_BAR;
-          const cosA   = Math.cos(angle);
-          const sinA   = Math.sin(angle);
-          ctx.shadowColor  = 'rgba(0,242,254,0.7)';
-          ctx.shadowBlur   = amp * 10;
-          ctx.strokeStyle  = `rgba(0,242,254,${(amp * 0.38).toFixed(2)})`;
-          ctx.beginPath();
-          ctx.moveTo(CX + cosA * INNER_R,           CY + sinA * INNER_R);
-          ctx.lineTo(CX + cosA * (INNER_R + barLen), CY + sinA * (INNER_R + barLen));
-          ctx.stroke();
-        }
-
-        // Pass 2 — sharp coloured bars (cyan → blue around the circle)
-        ctx.shadowBlur = 0;
-        ctx.lineWidth  = 1.5;
-        for (let i = 0; i < N; i++) {
-          const amp = freqData[Math.floor((i / N) * bins)] / 255;
-          const angle  = (i / N) * Math.PI * 2 - Math.PI / 2;
-          const barLen = 3 + amp * MAX_BAR;
-          const cosA   = Math.cos(angle);
-          const sinA   = Math.sin(angle);
-          const hue    = i / N;
-          const r      = Math.round(hue * 79);
-          const g      = Math.round(242 - hue * 70);
-          ctx.strokeStyle = `rgba(${r},${g},254,${(0.18 + amp * 0.82).toFixed(2)})`;
-          ctx.beginPath();
-          ctx.moveTo(CX + cosA * INNER_R,           CY + sinA * INNER_R);
-          ctx.lineTo(CX + cosA * (INNER_R + barLen), CY + sinA * (INNER_R + barLen));
-          ctx.stroke();
-        }
-
-        // Overall volume pulse ring
-        if (vol > 0.03) {
-          ctx.shadowBlur  = 0;
-          ctx.strokeStyle = `rgba(0,242,254,${(vol * 0.32).toFixed(2)})`;
-          ctx.lineWidth   = 1;
-          ctx.beginPath();
-          ctx.arc(CX, CY, INNER_R + vol * 14, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-
-      drawFrame();
-
-    } catch {
-      // Web Audio unavailable (permission denied before STT, or unsupported)
-      // Speech recognition continues without the visualizer
-    }
-
-    // ── 2. Web Speech API ────────────────────────────────────────────────────
+  // ── Core recognition logic ────────────────────────────────────────────────────
+  // Extracted so onend can call it again on early browser stop.
+  function startRecognition() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
     const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) {
+      setMicError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+      setRecState('idle');
+      return;
+    }
 
-    const rec = new SR();
-    rec.lang              = 'en-ZA';   // South African English; browsers fall back to en-US
-    rec.interimResults    = true;
-    rec.maxAlternatives   = 1;
-    rec.continuous        = false;
+    const rec: AnySpeechRecognition = new SR();
+    rec.lang            = 'en-ZA';   // South African English; browsers fall back to en-US
+    rec.interimResults  = true;      // stream words live as they are spoken
+    rec.maxAlternatives = 1;
+    rec.continuous      = true;      // don't stop on natural mid-sentence pauses
 
-    rec.onstart = () => setRecording(true);
-
-    rec.onend = () => {
-      setRecording(false);
-      setInterimTranscript('');
-      stopAudio();
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onerror = (e: any) => {
-      setRecording(false);
-      setInterimTranscript('');
-      stopAudio();
-      if (e.error === 'not-allowed')   setMicError('Microphone access was denied. Allow it in your browser settings.');
-      else if (e.error !== 'no-speech') setMicError(`Voice input error: ${e.error}`);
+    rec.onstart = () => {
+      isListeningRef.current = true;
+      setRecState('listening');
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
-      let liveText  = '';
-      let finalText = '';
+      // Every new speech event resets the 5-second silence countdown.
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        userStoppedRef.current = true;
+        setRecState('finalising');
+        recognitionRef.current?.stop();
+      }, SILENCE_MS);
 
+      let interim  = '';
+      let newFinal = '';
+
+      // Only process new results from resultIndex onward — prevents duplication on restart
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) {
-          finalText += e.results[i][0].transcript as string;
+          newFinal += e.results[i][0].transcript as string;
         } else {
-          liveText += e.results[i][0].transcript as string;
+          interim += e.results[i][0].transcript as string;
         }
       }
 
-      if (liveText) setInterimTranscript(liveText);
+      // Append confirmed final text to our cross-restart accumulator
+      if (newFinal.trim()) {
+        accumulatedRef.current = accumulatedRef.current
+          ? `${accumulatedRef.current} ${newFinal.trim()}`
+          : newFinal.trim();
+      }
 
-      if (finalText) {
-        const parts   = getFillerParts(finalText);
-        const cleaned = stripFiller(finalText);
+      setInterimText(interim);
 
-        setFillerParts(parts);
-        setCleanedTranscript(cleaned);
-        setInterimTranscript('');
+      // Live-update the textarea: confirmed text + whatever is currently being heard
+      const display = interim
+        ? `${accumulatedRef.current} ${interim}`.trim()
+        : accumulatedRef.current;
+      if (display) setPrompt(display);
+    };
 
-        if (hasFillers(finalText)) {
-          setFiltering(true);
-          setTimeout(() => setFiltering(false), 1200);
+    rec.onend = () => {
+      if (userStoppedRef.current || !isListeningRef.current) {
+        // ── Intentional stop: 5s timer fired, manual tap, or unmount ────────
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        isListeningRef.current = false;
+        userStoppedRef.current = false;
+        setInterimText('');
+
+        // Finalise prompt to the confirmed accumulated text (drop any dangling interim)
+        if (accumulatedRef.current) {
+          setPrompt(accumulatedRef.current);
+          setFillerParts(getFillerParts(accumulatedRef.current));
+          setCleanedTranscript(stripFiller(accumulatedRef.current));
+          setVendorMatch(matchVendors(accumulatedRef.current, data.vendors));
         }
 
-        setPrompt((prev) => (prev.trimEnd() ? `${prev.trimEnd()} ${cleaned}` : cleaned));
+        setRecState('idle');
+      } else {
+        // ── Browser ended the session early (common in Chrome) — auto-restart ─
+        // Accumulated text and the 5s timer are both preserved.
+        setInterimText('');
+        startRecognition();
+      }
+    };
 
-        const match = matchVendors(finalText, data.vendors);
-        setVendorMatch(match);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      if (e.error === 'not-allowed') {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        isListeningRef.current = false;
+        userStoppedRef.current = false;
+        setRecState('idle');
+        setMicError('Microphone access was denied. Allow it in your browser settings.');
+      } else if (e.error === 'no-speech' || e.error === 'aborted') {
+        // 'no-speech': browser detected silence — onend fires next and auto-restarts.
+        // 'aborted':   we called abort() on unmount — onend will see userStopped=true.
+      } else {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        isListeningRef.current = false;
+        userStoppedRef.current = false;
+        setRecState('idle');
+        setMicError(`Voice input error: ${e.error}`);
       }
     };
 
     recognitionRef.current = rec;
     rec.start();
+  }
+
+  // ── Toggle handler (tap the mic button) ──────────────────────────────────────
+  function toggleRecording() {
+    if (recState !== 'idle') {
+      // Manual stop — flag as intentional so onend doesn't auto-restart
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      userStoppedRef.current = true;
+      setRecState('finalising');
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    // Start a fresh recording session
+    setMicError(null);
+    setInterimText('');
+    setPrompt('');
+    setFillerParts([]);
+    setCleanedTranscript('');
+    setVendorMatch(null);
+    accumulatedRef.current = '';
+
+    startRecognition();
   }
 
   const vendor  = data.vendors[0];
@@ -669,49 +461,28 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
       <form onSubmit={run} className="mt-6 space-y-4">
 
-        {/* ── Voice Orb ──────────────────────────────────────────────────── */}
+        {/* ── Mic button ─────────────────────────────────────────────────── */}
         {hasSpeech && (
           <>
-            <VoiceOrb
-              recording={recording}
-              busy={busy}
-              result={result}
-              filtering={filtering}
-              speaking={speaking}
-              onClick={toggleRecording}
-              disabled={busy}
-              waveCanvasRef={waveCanvasRef}
-              orbSphereRef={orbSphereRef}
-            />
+            <MicButton recState={recState} busy={busy} onClick={toggleRecording} />
 
-            {/* ── Live transcript + volume meter ─────────────────────────── */}
-            <div className={`overflow-hidden transition-all duration-300 ${recording ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
+            {/* Interim speech display — shown while listening */}
+            <div className={`overflow-hidden transition-all duration-300 ${recState === 'listening' ? 'max-h-28 opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="rounded-xl border border-df-cyan/20 bg-df-cyan/[0.03] px-4 py-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-neutral-600">Live transcript</p>
-                  {/* Real-time volume bar — written directly by rAF, no React state */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-neutral-700">VOL</span>
-                    <div className="h-1 w-16 overflow-hidden rounded-full bg-df-line">
-                      <div
-                        ref={volumeBarRef}
-                        className="h-full rounded-full"
-                        style={{ width: '0%', backgroundColor: '#4FACFE', transition: 'none' }}
-                      />
-                    </div>
-                  </div>
-                </div>
+                <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
+                  Live transcript
+                </p>
                 <p className="text-sm leading-relaxed text-neutral-300">
-                  {interimTranscript
-                    ? <>{interimTranscript}<span className="sim-cursor text-df-cyan" aria-hidden /></>
+                  {interimText
+                    ? <>{interimText}<span className="sim-cursor text-df-cyan" aria-hidden /></>
                     : <span className="animate-pulse text-df-mute">Waiting for speech...</span>
                   }
                 </p>
               </div>
             </div>
 
-            {/* ── Vendor match pill ──────────────────────────────────────── */}
-            {vendorMatch && !busy && (
+            {/* Vendor match pill */}
+            {vendorMatch && recState === 'idle' && !busy && (
               <div className="flex items-center gap-3 rounded-xl border border-df-cyan/25 bg-df-cyan/[0.04] px-3 py-2.5">
                 <span className="badge-verified text-[10px] normal-case shrink-0">vendor matched</span>
                 <span className="text-sm font-semibold text-white truncate">{vendorMatch.label}</span>
@@ -723,7 +494,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           </>
         )}
 
-        {/* ── Text input ─────────────────────────────────────────────────── */}
+        {/* ── Review / edit textarea ─────────────────────────────────────── */}
         <div>
           {hasSpeech && (
             <p className="mb-1.5 text-xs text-df-mute">
@@ -743,6 +514,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
             value={prompt}
             onChange={(e) => {
               setPrompt(e.target.value);
+              // Clear voice trace when user manually edits
               if (fillerParts.length > 0) {
                 setFillerParts([]);
                 setCleanedTranscript('');
@@ -798,7 +570,6 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
       {/* ── Result area ────────────────────────────────────────────────────── */}
       <div aria-live="polite" className="mt-4 space-y-3">
-
         {busy && !showTelemetry && (
           <p className="hint flex items-center gap-2 text-sm">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-df-blue" aria-hidden />
@@ -853,7 +624,6 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           </div>
         )}
 
-        {/* Voice telemetry strip — voice submissions only */}
         {showTelemetry && (
           <TelemetryStrip
             fillerParts={fillerParts}
