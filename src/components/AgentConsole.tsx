@@ -10,6 +10,7 @@ import {
 import {
   isSpeechSupported, createBrowserSpeechProvider, type SpeechProvider,
 } from '@/lib/speech-provider';
+import type { TranslateRequest, TranslateResponse, TranslationMethod } from '@/lib/message-protocol';
 import { api, LAYER_LABEL, money } from './api';
 
 const SILENCE_MS      = 5000;
@@ -43,22 +44,27 @@ function StopIcon() {
 
 // ─── Mic Button ───────────────────────────────────────────────────────────────
 
-type RecState = 'idle' | 'listening' | 'finalising';
+type RecState = 'idle' | 'listening' | 'finalising' | 'translating';
 
 function MicButton({ recState, busy, onClick }: { recState: RecState; busy: boolean; onClick: () => void }) {
   const label =
-    recState === 'finalising' ? 'Finalising...' :
-    recState === 'listening'  ? 'Listening... tap to stop early' :
+    recState === 'translating' ? 'Translating...' :
+    recState === 'finalising'  ? 'Finalising...' :
+    recState === 'listening'   ? 'Listening... tap to stop early' :
     'Tap to speak';
+
+  const isBlocked = busy || recState === 'finalising' || recState === 'translating';
 
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={busy || recState === 'finalising'}
+      disabled={isBlocked}
       aria-label={recState !== 'idle' ? 'Stop recording' : 'Start voice recording'}
       className={`relative flex w-full items-center justify-center gap-3 rounded-xl border-2 py-4 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-df-cyan/60 disabled:cursor-not-allowed disabled:opacity-40 ${
-        recState === 'finalising'
+        recState === 'translating'
+          ? 'border-df-blue/50 bg-df-blue/[0.05] text-df-blue'
+          : recState === 'finalising'
           ? 'border-df-yellow/50 bg-df-yellow/[0.05] text-df-yellow'
           : recState === 'listening'
           ? 'border-red-400/60 bg-red-400/[0.06] text-red-400'
@@ -70,8 +76,9 @@ function MicButton({ recState, busy, onClick }: { recState: RecState; busy: bool
       )}
 
       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-        recState === 'finalising' ? 'bg-df-yellow/15' :
-        recState === 'listening'  ? 'bg-red-400/20'   : 'bg-white/[0.06]'
+        recState === 'translating' ? 'bg-df-blue/15'   :
+        recState === 'finalising'  ? 'bg-df-yellow/15' :
+        recState === 'listening'   ? 'bg-red-400/20'   : 'bg-white/[0.06]'
       }`}>
         {recState !== 'idle' ? <StopIcon /> : <MicIcon />}
       </span>
@@ -88,6 +95,12 @@ function MicButton({ recState, busy, onClick }: { recState: RecState; busy: bool
         <span className="ml-auto mr-1 flex items-center gap-1.5 text-xs text-df-yellow/80">
           <span className="h-1.5 w-1.5 rounded-full bg-df-yellow animate-pulse" aria-hidden />
           processing
+        </span>
+      )}
+      {recState === 'translating' && (
+        <span className="ml-auto mr-1 flex items-center gap-1.5 text-xs text-df-blue/80">
+          <span className="h-1.5 w-1.5 rounded-full bg-df-blue animate-pulse" aria-hidden />
+          translating
         </span>
       )}
     </button>
@@ -244,8 +257,11 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const [selectedLang, setSelectedLang] = useState<string>(DEFAULT_LANG);
   const [langNotSupported, setLangNotSupported] = useState(false);
 
-  // Set when the finalised transcript was translated or name-corrected
-  const [wasTranslated, setWasTranslated] = useState(false);
+  // Non-null when a translation was applied; holds the method and source-language label for display
+  const [translationInfo, setTranslationInfo] = useState<{
+    method: TranslationMethod;
+    sourceLangLabel: string;
+  } | null>(null);
 
   // Voice telemetry shown in TelemetryStrip
   const [fillerParts, setFillerParts]             = useState<TextPart[]>([]);
@@ -351,15 +367,43 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           setInterimText('');
 
           if (accumulatedRef.current) {
-            const raw        = accumulatedRef.current;
-            const normalised = normaliseForEnglishParser(raw, selectedLangRef.current);
-            const corrected  = applyMishearingMap(normalised, MISHEARING_MAP);
-            const named      = correctNames(corrected, data.vendors);
+            const raw          = accumulatedRef.current;
+            const langCode     = selectedLangRef.current;
+            // Stage 2: instant client-side normalisation (keyword map + name correction)
+            const normalised   = normaliseForEnglishParser(raw, langCode);
+            const corrected    = applyMishearingMap(normalised, MISHEARING_MAP);
+            const named        = correctNames(corrected, data.vendors);
+
             setPrompt(named);
             setFillerParts(getFillerParts(raw));
             setCleanedTranscript(stripFiller(named));
             setVendorMatch(matchVendors(named, data.vendors));
-            setWasTranslated(named !== raw);
+
+            if (langCode !== DEFAULT_LANG) {
+              // Stage 3: async server-side LLM translation → update review box in-place
+              const langLabel = SPEECH_LANGS.find((l) => l.code === langCode)?.label ?? langCode;
+              setRecState('translating');
+
+              api<TranslateResponse>('/api/translate', {
+                method: 'POST',
+                body: { text: named, sourceLang: langCode } satisfies TranslateRequest,
+              }).then((res) => {
+                if (res.translated !== named) {
+                  setPrompt(res.translated);
+                  setCleanedTranscript(stripFiller(res.translated));
+                  setVendorMatch(matchVendors(res.translated, data.vendors));
+                }
+                setTranslationInfo({ method: res.method, sourceLangLabel: langLabel });
+                setRecState('idle');
+              }).catch(() => {
+                // Keep keyword-map result; flag that server translation failed
+                setTranslationInfo({ method: 'keyword-map', sourceLangLabel: langLabel });
+                setRecState('idle');
+              });
+              return; // stay in 'translating' until the promise resolves
+            } else if (named !== raw) {
+              setTranslationInfo({ method: 'keyword-map', sourceLangLabel: 'English' });
+            }
           }
 
           setRecState('idle');
@@ -416,7 +460,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     setFillerParts([]);
     setCleanedTranscript('');
     setVendorMatch(null);
-    setWasTranslated(false);
+    setTranslationInfo(null);
     accumulatedRef.current = '';
 
     startRecognition();
@@ -523,6 +567,19 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
           <>
             <MicButton recState={recState} busy={busy} onClick={toggleRecording} />
 
+            {/* Translation-in-progress panel */}
+            <div className={`overflow-hidden transition-all duration-300 ${recState === 'translating' ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <div className="rounded-xl border border-df-blue/20 bg-df-blue/[0.04] px-4 py-3">
+                <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
+                  Message protocol · stage 3
+                </p>
+                <p className="flex items-center gap-2 text-sm text-df-blue">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-df-blue animate-pulse" aria-hidden />
+                  Translating to English via language model...
+                </p>
+              </div>
+            </div>
+
             {/* Interim speech display — visible while listening */}
             <div className={`overflow-hidden transition-all duration-300 ${recState === 'listening' ? 'max-h-28 opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="rounded-xl border border-df-cyan/20 bg-df-cyan/[0.03] px-4 py-3">
@@ -549,13 +606,30 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
               </div>
             )}
 
-            {/* Translation / name-correction notice */}
-            {wasTranslated && recState === 'idle' && !busy && (
-              <div className="flex items-start gap-3 rounded-xl border border-df-blue/20 bg-df-blue/[0.04] px-3 py-2.5">
-                <span className="badge-pending mt-0.5 shrink-0 text-[10px] normal-case">auto-corrected</span>
-                <span className="text-xs text-neutral-400 leading-relaxed">
-                  Keywords translated and names matched against your saved vendors. Review the text below before sending.
-                </span>
+            {/* Translation pipeline notice */}
+            {translationInfo && recState === 'idle' && !busy && (
+              <div className="rounded-xl border border-df-blue/20 bg-df-blue/[0.04] px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  {translationInfo.method === 'llm' ? (
+                    <span className="badge-verified shrink-0 text-[10px] normal-case">AI translated</span>
+                  ) : translationInfo.method === 'keyword-map' ? (
+                    <span className="badge-pending shrink-0 text-[10px] normal-case">keywords mapped</span>
+                  ) : (
+                    <span className="badge-pending shrink-0 text-[10px] normal-case">normalised</span>
+                  )}
+                  <span className="text-xs text-neutral-400">
+                    {translationInfo.method === 'llm'
+                      ? `Translated from ${translationInfo.sourceLangLabel} by the language model.`
+                      : translationInfo.method === 'keyword-map'
+                      ? `Payment keywords translated from ${translationInfo.sourceLangLabel}. Review before sending.`
+                      : 'Filler words and known mishearings corrected.'}
+                  </span>
+                </div>
+                {translationInfo.method === 'keyword-map' && translationInfo.sourceLangLabel !== 'English' && (
+                  <p className="mt-1.5 text-[10px] text-neutral-600">
+                    Language model not available — only payment verbs were translated. Check the full text carefully.
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -582,11 +656,11 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
             onChange={(e) => {
               setPrompt(e.target.value);
               // Clear voice trace when user manually edits
-              if (fillerParts.length > 0) {
+              if (fillerParts.length > 0 || translationInfo) {
                 setFillerParts([]);
                 setCleanedTranscript('');
                 setVendorMatch(null);
-                setWasTranslated(false);
+                setTranslationInfo(null);
               }
             }}
           />
