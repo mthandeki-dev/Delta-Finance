@@ -1,7 +1,4 @@
 
-
-https://github.com/user-attachments/assets/0852ef07-6d0d-4959-a418-9a84b9a9535f
-
 <div align="center">
 
 # ⚡ Delta Finance
@@ -17,7 +14,8 @@ https://github.com/user-attachments/assets/0852ef07-6d0d-4959-a418-9a84b9a9535f
 
 </div>
 
-# DEMO VISUAL
+# DELTA FINANCE VISUAL : 
+
 https://github.com/user-attachments/assets/0852ef07-6d0d-4959-a418-9a84b9a9535f
 
 ---
