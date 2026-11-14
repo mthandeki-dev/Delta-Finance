@@ -3,6 +3,8 @@
 
 # ⚡ Delta Finance
 
+Live app link: https://delta-finance.vercel.app/
+
 **Supplier payments on autopilot, with limits your CFO controls.**
 
 *Autonomous AI treasury execution in RLUSD on the XRP Ledger—backed by deterministic policy routing, hardware-isolated Privy signing policies, and Xaman human-in-the-loop governance.*
