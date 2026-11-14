@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentResult, DashboardData } from '@/lib/types';
 import { getFillerParts, matchVendors, stripFiller, type TextPart, type VendorMatch } from '@/lib/intent-filter';
+import {
+  SPEECH_LANGS, DEFAULT_LANG, LANG_STORAGE_KEY,
+  normaliseForEnglishParser, applyMishearingMap, correctNames, MISHEARING_MAP,
+} from '@/lib/speech-langs';
+import {
+  isSpeechSupported, createBrowserSpeechProvider, type SpeechProvider,
+} from '@/lib/speech-provider';
 import { api, LAYER_LABEL, money } from './api';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySpeechRecognition = any;
-
-const SILENCE_MS    = 5000; // ms of silence before auto-stop
+const SILENCE_MS      = 5000;
 const UNKNOWN_ADDRESS = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe';
 
 const HEADLINE: Record<string, { title: string; tone: string }> = {
@@ -61,7 +65,6 @@ function MicButton({ recState, busy, onClick }: { recState: RecState; busy: bool
           : 'border-dashed border-white/20 bg-white/[0.02] text-neutral-400 hover:border-df-cyan/40 hover:bg-df-cyan/[0.03] hover:text-df-cyan'
       }`}
     >
-      {/* Pulse ring while actively listening */}
       {recState === 'listening' && (
         <span className="pointer-events-none absolute inset-0 rounded-xl border-2 border-red-400/25 animate-ping" aria-hidden />
       )}
@@ -231,178 +234,203 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const [result, setResult] = useState<AgentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Voice state ───────────────────────────────────────────────────────────────
   const [recState, setRecState]       = useState<RecState>('idle');
   const [micError, setMicError]       = useState<string | null>(null);
   const [hasSpeech, setHasSpeech]     = useState<boolean | null>(null);
   const [interimText, setInterimText] = useState('');
 
-  // Voice telemetry
-  const [fillerParts, setFillerParts]           = useState<TextPart[]>([]);
+  // Language selection — initialised to DEFAULT_LANG; localStorage loaded in effect
+  const [selectedLang, setSelectedLang] = useState<string>(DEFAULT_LANG);
+  const [langNotSupported, setLangNotSupported] = useState(false);
+
+  // Set when the finalised transcript was translated or name-corrected
+  const [wasTranslated, setWasTranslated] = useState(false);
+
+  // Voice telemetry shown in TelemetryStrip
+  const [fillerParts, setFillerParts]             = useState<TextPart[]>([]);
   const [cleanedTranscript, setCleanedTranscript] = useState('');
-  const [vendorMatch, setVendorMatch]           = useState<VendorMatch | null>(null);
+  const [vendorMatch, setVendorMatch]             = useState<VendorMatch | null>(null);
 
   // Session counters
-  const [sessionExecCount, setSessionExecCount]   = useState(0);
+  const [sessionExecCount, setSessionExecCount]     = useState(0);
   const [lastSubmitWasVoice, setLastSubmitWasVoice] = useState(false);
 
-  // ── Recognition refs ─────────────────────────────────────────────────────────
-  const recognitionRef  = useRef<AnySpeechRecognition>(null);
+  // ── Refs ──────────────────────────────────────────────────────────────────────
+  const providerRef     = useRef<SpeechProvider | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // userStoppedRef: true when WE triggered the stop (5s timer or manual tap).
-  // If onend fires while this is false, the browser ended the session early → auto-restart.
+  // true when WE triggered the stop (5s timer / manual tap / unmount)
   const userStoppedRef  = useRef(false);
-  // isListeningRef: guards against stale-closure re-starts after component unmount.
+  // guards against stale-closure auto-restarts after unmount
   const isListeningRef  = useRef(false);
-  // accumulatedRef: confirmed final text collected across all auto-restarts in this session.
+  // confirmed final text collected across all auto-restarts within one session
   const accumulatedRef  = useRef('');
+  // always holds the latest selectedLang without stale-closure issues
+  const selectedLangRef = useRef(DEFAULT_LANG);
+
+  // ── Boot effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    setHasSpeech(typeof window !== 'undefined' && (!!w.SpeechRecognition || !!w.webkitSpeechRecognition));
+    setHasSpeech(isSpeechSupported());
   }, []);
 
+  // Restore saved language from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(LANG_STORAGE_KEY);
+    if (saved && SPEECH_LANGS.some((l) => l.code === saved)) {
+      setSelectedLang(saved);
+      selectedLangRef.current = saved;
+    }
+  }, []);
+
+  // Keep ref in sync whenever state changes
+  useEffect(() => {
+    selectedLangRef.current = selectedLang;
+  }, [selectedLang]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       isListeningRef.current = false;
-      userStoppedRef.current = true; // prevent auto-restart on unmount
-      recognitionRef.current?.abort();
+      userStoppedRef.current = true; // prevent auto-restart
+      providerRef.current?.abort();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
   }, []);
 
-  // ── Core recognition logic ────────────────────────────────────────────────────
-  // Extracted so onend can call it again on early browser stop.
-  function startRecognition() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!SR) {
-      setMicError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
-      setRecState('idle');
-      return;
-    }
+  // ── Helper: reset recognition state on error / abort ─────────────────────────
 
-    const rec: AnySpeechRecognition = new SR();
-    rec.lang            = 'en-ZA';   // South African English; browsers fall back to en-US
-    rec.interimResults  = true;      // stream words live as they are spoken
-    rec.maxAlternatives = 1;
-    rec.continuous      = true;      // don't stop on natural mid-sentence pauses
-
-    rec.onstart = () => {
-      isListeningRef.current = true;
-      setRecState('listening');
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => {
-      // Every new speech event resets the 5-second silence countdown.
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        userStoppedRef.current = true;
-        setRecState('finalising');
-        recognitionRef.current?.stop();
-      }, SILENCE_MS);
-
-      let interim  = '';
-      let newFinal = '';
-
-      // Only process new results from resultIndex onward — prevents duplication on restart
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          newFinal += e.results[i][0].transcript as string;
-        } else {
-          interim += e.results[i][0].transcript as string;
-        }
-      }
-
-      // Append confirmed final text to our cross-restart accumulator
-      if (newFinal.trim()) {
-        accumulatedRef.current = accumulatedRef.current
-          ? `${accumulatedRef.current} ${newFinal.trim()}`
-          : newFinal.trim();
-      }
-
-      setInterimText(interim);
-
-      // Live-update the textarea: confirmed text + whatever is currently being heard
-      const display = interim
-        ? `${accumulatedRef.current} ${interim}`.trim()
-        : accumulatedRef.current;
-      if (display) setPrompt(display);
-    };
-
-    rec.onend = () => {
-      if (userStoppedRef.current || !isListeningRef.current) {
-        // ── Intentional stop: 5s timer fired, manual tap, or unmount ────────
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        isListeningRef.current = false;
-        userStoppedRef.current = false;
-        setInterimText('');
-
-        // Finalise prompt to the confirmed accumulated text (drop any dangling interim)
-        if (accumulatedRef.current) {
-          setPrompt(accumulatedRef.current);
-          setFillerParts(getFillerParts(accumulatedRef.current));
-          setCleanedTranscript(stripFiller(accumulatedRef.current));
-          setVendorMatch(matchVendors(accumulatedRef.current, data.vendors));
-        }
-
-        setRecState('idle');
-      } else {
-        // ── Browser ended the session early (common in Chrome) — auto-restart ─
-        // Accumulated text and the 5s timer are both preserved.
-        setInterimText('');
-        startRecognition();
-      }
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onerror = (e: any) => {
-      if (e.error === 'not-allowed') {
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        isListeningRef.current = false;
-        userStoppedRef.current = false;
-        setRecState('idle');
-        setMicError('Microphone access was denied. Allow it in your browser settings.');
-      } else if (e.error === 'no-speech' || e.error === 'aborted') {
-        // 'no-speech': browser detected silence — onend fires next and auto-restarts.
-        // 'aborted':   we called abort() on unmount — onend will see userStopped=true.
-      } else {
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        isListeningRef.current = false;
-        userStoppedRef.current = false;
-        setRecState('idle');
-        setMicError(`Voice input error: ${e.error}`);
-      }
-    };
-
-    recognitionRef.current = rec;
-    rec.start();
+  function stopCleanly() {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    isListeningRef.current = false;
+    userStoppedRef.current = false;
+    setRecState('idle');
   }
 
-  // ── Toggle handler (tap the mic button) ──────────────────────────────────────
+  // ── Core recognition logic ────────────────────────────────────────────────────
+  // Extracted so onEnd can call it recursively on early browser stop.
+
+  function startRecognition() {
+    const provider = createBrowserSpeechProvider();
+    providerRef.current = provider;
+
+    provider.start(selectedLangRef.current, {
+      onStart() {
+        isListeningRef.current = true;
+        setRecState('listening');
+      },
+
+      onResult(interim, newFinal) {
+        // Reset 5-second silence countdown on every speech event
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          userStoppedRef.current = true;
+          setRecState('finalising');
+          providerRef.current?.stop();
+        }, SILENCE_MS);
+
+        if (newFinal) {
+          accumulatedRef.current = accumulatedRef.current
+            ? `${accumulatedRef.current} ${newFinal}`
+            : newFinal;
+        }
+
+        setInterimText(interim);
+        const display = interim
+          ? `${accumulatedRef.current} ${interim}`.trim()
+          : accumulatedRef.current;
+        if (display) setPrompt(display);
+      },
+
+      onEnd() {
+        if (userStoppedRef.current || !isListeningRef.current) {
+          // ── Intentional stop (5s timer / manual tap / unmount) ────────────
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          isListeningRef.current = false;
+          userStoppedRef.current = false;
+          setInterimText('');
+
+          if (accumulatedRef.current) {
+            const raw        = accumulatedRef.current;
+            const normalised = normaliseForEnglishParser(raw, selectedLangRef.current);
+            const corrected  = applyMishearingMap(normalised, MISHEARING_MAP);
+            const named      = correctNames(corrected, data.vendors);
+            setPrompt(named);
+            setFillerParts(getFillerParts(raw));
+            setCleanedTranscript(stripFiller(named));
+            setVendorMatch(matchVendors(named, data.vendors));
+            setWasTranslated(named !== raw);
+          }
+
+          setRecState('idle');
+        } else {
+          // ── Browser ended session early (common in Chrome) — auto-restart ─
+          setInterimText('');
+          startRecognition();
+        }
+      },
+
+      onError(code) {
+        if (code === 'not-allowed') {
+          stopCleanly();
+          setMicError('Microphone access was denied. Allow it in your browser settings.');
+        } else if (code === 'language-not-supported') {
+          stopCleanly();
+          const langLabel = SPEECH_LANGS.find((l) => l.code === selectedLangRef.current)?.label ?? selectedLangRef.current;
+          setMicError(`"${langLabel}" isn't supported by your browser — switched to English.`);
+          setLangNotSupported(true);
+          const fallback = DEFAULT_LANG;
+          setSelectedLang(fallback);
+          selectedLangRef.current = fallback;
+          localStorage.setItem(LANG_STORAGE_KEY, fallback);
+        } else if (code === 'not-supported') {
+          stopCleanly();
+          setMicError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+        } else if (code === 'no-speech' || code === 'aborted') {
+          // no-speech: browser will fire onEnd which handles auto-restart
+          // aborted: we called abort() on unmount — onEnd sees userStopped=true
+        } else {
+          stopCleanly();
+          setMicError(`Voice input error: ${code}`);
+        }
+      },
+    });
+  }
+
+  // ── Toggle handler (mic button tap) ──────────────────────────────────────────
+
   function toggleRecording() {
     if (recState !== 'idle') {
-      // Manual stop — flag as intentional so onend doesn't auto-restart
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       userStoppedRef.current = true;
       setRecState('finalising');
-      recognitionRef.current?.stop();
+      providerRef.current?.stop();
       return;
     }
 
     // Start a fresh recording session
     setMicError(null);
+    setLangNotSupported(false);
     setInterimText('');
     setPrompt('');
     setFillerParts([]);
     setCleanedTranscript('');
     setVendorMatch(null);
+    setWasTranslated(false);
     accumulatedRef.current = '';
 
     startRecognition();
   }
+
+  function handleLangChange(code: string) {
+    setSelectedLang(code);
+    selectedLangRef.current = code;
+    localStorage.setItem(LANG_STORAGE_KEY, code);
+    setLangNotSupported(false);
+    setMicError(null);
+  }
+
+  // ── Example chips ─────────────────────────────────────────────────────────────
 
   const vendor  = data.vendors[0];
   const perTx   = Number(data.policy.perTxLimitRlusd);
@@ -413,6 +441,8 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     vendor && { tag: 'Payroll',    text: `Pay ${vendor.label} ${small} RLUSD for this month's salary` },
     { tag: 'Unknown', text: `Pay 5 RLUSD to ${UNKNOWN_ADDRESS}` },
   ].filter(Boolean) as { tag: string; text: string }[];
+
+  // ── Submit ────────────────────────────────────────────────────────────────────
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
@@ -442,6 +472,8 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
   const head          = result ? HEADLINE[result.status] : null;
   const showTelemetry = lastSubmitWasVoice && (busy || result !== null);
 
+  // ── Render ────────────────────────────────────────────────────────────────────
+
   return (
     <section className="card relative" aria-labelledby="console-h">
       {sessionExecCount > 0 && (
@@ -461,12 +493,37 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
 
       <form onSubmit={run} className="mt-6 space-y-4">
 
+        {/* ── Language selector ──────────────────────────────────────────── */}
+        {hasSpeech && (
+          <div className="flex items-center gap-2">
+            <label htmlFor="voice-lang" className="shrink-0 text-xs text-neutral-500">
+              Voice language
+            </label>
+            <select
+              id="voice-lang"
+              value={selectedLang}
+              onChange={(e) => handleLangChange(e.target.value)}
+              disabled={recState !== 'idle'}
+              className="flex-1 rounded-lg border border-df-line bg-df-panel px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-df-cyan/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {SPEECH_LANGS.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+            {selectedLang !== DEFAULT_LANG && (
+              <span className="badge-pending shrink-0 text-[10px] normal-case">
+                auto-translate on
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ── Mic button ─────────────────────────────────────────────────── */}
         {hasSpeech && (
           <>
             <MicButton recState={recState} busy={busy} onClick={toggleRecording} />
 
-            {/* Interim speech display — shown while listening */}
+            {/* Interim speech display — visible while listening */}
             <div className={`overflow-hidden transition-all duration-300 ${recState === 'listening' ? 'max-h-28 opacity-100' : 'max-h-0 opacity-0'}`}>
               <div className="rounded-xl border border-df-cyan/20 bg-df-cyan/[0.03] px-4 py-3">
                 <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
@@ -484,10 +541,20 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
             {/* Vendor match pill */}
             {vendorMatch && recState === 'idle' && !busy && (
               <div className="flex items-center gap-3 rounded-xl border border-df-cyan/25 bg-df-cyan/[0.04] px-3 py-2.5">
-                <span className="badge-verified text-[10px] normal-case shrink-0">vendor matched</span>
-                <span className="text-sm font-semibold text-white truncate">{vendorMatch.label}</span>
-                <span className="ml-auto font-mono text-[10px] text-neutral-500 shrink-0">
+                <span className="badge-verified shrink-0 text-[10px] normal-case">vendor matched</span>
+                <span className="truncate text-sm font-semibold text-white">{vendorMatch.label}</span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-neutral-500">
                   {Math.round(vendorMatch.score * 100)}%
+                </span>
+              </div>
+            )}
+
+            {/* Translation / name-correction notice */}
+            {wasTranslated && recState === 'idle' && !busy && (
+              <div className="flex items-start gap-3 rounded-xl border border-df-blue/20 bg-df-blue/[0.04] px-3 py-2.5">
+                <span className="badge-pending mt-0.5 shrink-0 text-[10px] normal-case">auto-corrected</span>
+                <span className="text-xs text-neutral-400 leading-relaxed">
+                  Keywords translated and names matched against your saved vendors. Review the text below before sending.
                 </span>
               </div>
             )}
@@ -519,14 +586,19 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
                 setFillerParts([]);
                 setCleanedTranscript('');
                 setVendorMatch(null);
+                setWasTranslated(false);
               }
             }}
           />
         </div>
 
+        {/* Error messages */}
         {micError && (
           <p role="alert" className="text-xs text-neutral-400">
-            <span className="text-df-yellow">Mic error.</span> {micError}
+            <span className="text-df-yellow">
+              {langNotSupported ? 'Language not supported.' : 'Mic error.'}
+            </span>{' '}
+            {micError}
           </p>
         )}
 
