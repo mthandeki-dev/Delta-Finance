@@ -14,6 +14,7 @@ import { env } from '@/lib/env';
 import { AppError, errorMessage } from '@/lib/errors';
 import { fromMicro, numberToDecimalString, toMicro } from '@/lib/money';
 import { decide, type Decision, type Intent } from '@/lib/policy/router';
+import { sendPaymentNotification } from './email.service';
 import { IntentError, parseIntent } from './llm.service';
 import { verify as verifyProposal } from './verification.service';
 import { buildMandatePolicy, createXrplWallet, getPrivyWallet, PrivyPolicyDenied, signXrplTransaction, upsertMandatePolicy } from './privy.service';
@@ -254,6 +255,19 @@ export async function runAgent(input: { prompt: string; actor: string; redTeam?:
         data: { ...base, route: 'HITL', status: 'PENDING_HITL', reason: decision.reasons.join(' ') },
       });
       await audit('AGENT_ESCALATED_TO_HUMAN', { actor, txId: tx.id, detail: { reasons: decision.reasons, intent } });
+
+      const vendorLabel = vendors.find((v) => v.xrplAddress === intent.merchant_address)?.label ?? null;
+      sendPaymentNotification({
+        status: 'PENDING_HITL',
+        actorIdentity: actor,
+        vendorName: vendorLabel,
+        vendorAddress: intent.merchant_address,
+        amountRlusd: intent.amount,
+        isPayroll: intent.is_payroll,
+        txId: tx.id,
+        timestamp: new Date().toISOString(),
+      }).catch(() => null);
+
       return outcome(tx, intent);
     }
 
@@ -281,7 +295,8 @@ export async function runAgent(input: { prompt: string; actor: string; redTeam?:
     const invoiceId = `DF-${tx.id}`;
     await prisma.transactionLog.update({ where: { id: tx.id }, data: { invoiceId } });
     await audit('AGENT_AUTHORISED', { actor, txId: tx.id, detail: { intent, spentTodayBefore: fromMicro(spent) } });
-    return outcome(await executeAutonomous(tx.id, intent, amount, wallet, actor), intent);
+    const vendorLabel = vendors.find((v) => v.xrplAddress === intent.merchant_address)?.label ?? null;
+    return outcome(await executeAutonomous(tx.id, intent, amount, wallet, actor, vendorLabel), intent);
   });
 }
 
@@ -291,6 +306,7 @@ async function executeAutonomous(
   amount: string,
   wallet: AgentWallet | null,
   actor: string,
+  vendorLabel: string | null,
 ): Promise<TransactionLog> {
   const finish = (data: Partial<TransactionLog>) => prisma.transactionLog.update({ where: { id: txId }, data: data as never });
   try {
@@ -330,6 +346,17 @@ async function executeAutonomous(
     const confirmed = await confirmRlusdPayment(hash, { to: intent.merchant_address, amount });
     if (confirmed.validated && confirmed.result === 'tesSUCCESS') {
       await audit('AGENT_PAYMENT_EXECUTED', { actor, txId, detail: { hash, amount, to: intent.merchant_address, settledVia: settled.settledVia } });
+      sendPaymentNotification({
+        status: 'EXECUTED',
+        actorIdentity: actor,
+        vendorName: vendorLabel,
+        vendorAddress: intent.merchant_address,
+        amountRlusd: intent.amount,
+        isPayroll: intent.is_payroll,
+        txId,
+        txHash: hash,
+        timestamp: new Date().toISOString(),
+      }).catch(() => null);
       return finish({ status: 'EXECUTED', txHash: hash, settledVia: settled.settledVia ?? 'T54_FACILITATOR', reason: null });
     }
     const reason = confirmed.validated

@@ -49,38 +49,38 @@ async function main(): Promise<void> {
 
   const coal = await prisma.inventory.upsert({
     where: { id: 'seed-coal' },
-    update: { currentStock: 105 },
+    update: { currentStock: 105, restockQuantity: 5 },
     create: {
       id: 'seed-coal',
       itemName: 'Coal',
       unit: 'kg',
-      currentStock: 105,        // above threshold of 100 (was 95, +10)
+      currentStock: 105,        // above threshold of 100
       minimumThreshold: 100,
-      restockQuantity: 20,
+      restockQuantity: 5,
       unitPriceRlusd: 0.5,
       fulfillmentChannel: 'XRPL_VENDOR',
       vendorName: 'Mthandeki Ndlambuzi',
       vendorWalletAddress: null, // set once the vendor's XRPL address is known
-      maxSpendLimit: 15,         // 20 kg × 0.5 = 10 RLUSD, well under 15
+      maxSpendLimit: 15,         // 5 kg × 0.5 = 2.5 RLUSD, well under 15
     },
   });
   console.log(`Inventory: ${coal.itemName} (stock=${coal.currentStock}/${coal.minimumThreshold})`);
 
   const water = await prisma.inventory.upsert({
     where: { id: 'seed-water' },
-    update: { currentStock: 69 },
+    update: { currentStock: 69, restockQuantity: 5 },
     create: {
       id: 'seed-water',
       itemName: 'Bottled Water',
       unit: 'bottle',
-      currentStock: 69,          // above threshold of 60 (was 59, +10)
+      currentStock: 69,          // above threshold of 60
       minimumThreshold: 60,
-      restockQuantity: 20,
+      restockQuantity: 5,
       unitPriceRlusd: 0.15,
       fulfillmentChannel: 'XRPL_VENDOR',
       vendorName: 'Lemogang Nthlaide',
       vendorWalletAddress: null,
-      maxSpendLimit: 5,          // 20 × 0.15 = 3 RLUSD, under 5
+      maxSpendLimit: 5,          // 5 × 0.15 = 0.75 RLUSD, well under 5
     },
   });
   console.log(`Inventory: ${water.itemName} (stock=${water.currentStock}/${water.minimumThreshold})`);
