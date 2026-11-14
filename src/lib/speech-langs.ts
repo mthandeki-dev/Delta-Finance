@@ -28,12 +28,19 @@ export const PAYMENT_KEYWORD_MAP: Partial<Record<string, Record<string, string>>
     'hlawula':    'pay',
     'khokha':     'pay',
     'yisa':       'send',
+    'sendela':    'pay',   // applied form of English "send" + Zulu suffix -ela ("send to/for")
+    'thumela':    'pay',   // "send to" (applied form of ukuthumela)
     'ku':         'to',
     'ukuya ku':   'to',
     'ngoba':      'for',
     'inkokhelo':  'invoice',
     'umholo':     'salary',
     'inhlawulo':  'payment',
+    'one':        '1',
+    'two':        '2',
+    'three':      '3',
+    'five':       '5',
+    'ten':        '10',
   },
   'af-ZA': {
     'betaal':     'pay',

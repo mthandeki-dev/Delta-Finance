@@ -492,6 +492,13 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     e.preventDefault();
     if (!prompt.trim()) return;
     const isVoice = cleanedTranscript !== '';
+
+    // If the client already ran LLM translation (stage 3), the textarea holds English — skip
+    // the backend translation pass. Otherwise, forward the selected language so the backend
+    // translates before the prompt reaches the intent parser.
+    const dispatchLang =
+      translationInfo && translationInfo.method === 'llm' ? 'en-ZA' : selectedLang;
+
     setBusy(true);
     setError(null);
     setResult(null);
@@ -499,7 +506,7 @@ export function AgentConsole({ data, isAdmin, onDone }: { data: DashboardData; i
     try {
       const r = await api<AgentResult & { error?: { message: string } }>('/api/agent', {
         method: 'POST',
-        body: { prompt, redTeam },
+        body: { prompt, sourceLang: dispatchLang, redTeam },
         okStatuses: [403, 502],
       });
       if (r.error) throw new Error(r.error.message);
